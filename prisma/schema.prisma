@@ -1,0 +1,64 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Category {
+  id       String    @id @default(uuid()) @db.Uuid
+  name     String    @unique
+  slug     String    @unique
+  products Product[]
+}
+
+model Product {
+  id          String      @id @default(uuid()) @db.Uuid
+  categoryId  String      @db.Uuid
+  name        String
+  description String?
+  priceMinor  Int
+  currency    String      @default("NGN")
+  stock       Int
+  category    Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  orderItems  OrderItem[]
+
+  @@index([categoryId])
+  @@index([priceMinor])
+}
+
+model Customer {
+  id     String  @id @default(uuid()) @db.Uuid
+  name   String
+  email  String  @unique
+  orders Order[]
+}
+
+model Order {
+  id         String      @id @default(uuid()) @db.Uuid
+  customerId String      @db.Uuid
+  status     String      @default("pending")
+  currency   String      @default("NGN")
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  customer   Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  orderItems OrderItem[]
+
+  @@index([customerId])
+  @@index([status])
+}
+
+model OrderItem {
+  id             String  @id @default(uuid()) @db.Uuid
+  orderId        String  @db.Uuid
+  productId      String  @db.Uuid
+  quantity       Int
+  unitPriceMinor Int
+  order          Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
+}
