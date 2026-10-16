@@ -6,7 +6,6 @@ const prisma = new PrismaClient();
 // Fixed seed value => every run generates byte-for-byte the same data.
 // Products/orders have no natural unique key, so repeatability lives here.
 const FIXED_SEED = 42;
-const CATEGORY_COUNT = 20;
 const PRODUCT_COUNT = 400;
 const CUSTOMER_COUNT = 300;
 const ORDER_COUNT = 500;
@@ -27,7 +26,9 @@ const ORDER_STATUSES = [
   { weight: 10, value: 'cancelled' },
 ] as const;
 
-// Fixed list of 20 realistic store categories (no generated names).
+// Fixed list of 20 realistic store categories (no generated names). This list
+// is the single source of truth for how many categories exist — no separate
+// count constant that could drift out of sync with it.
 const CATEGORY_NAMES = [
   'Electronics',
   'Phones & Tablets',
@@ -91,9 +92,9 @@ async function seed() {
   console.log('[Seed] Row counts BEFORE run:');
   console.table(await getRowCounts());
 
-  // 1. Categories: 20 fixed names; ids generated in code like every other table.
-  console.log(`[Seed] Inserting ${CATEGORY_COUNT} categories...`);
-  const categories = CATEGORY_NAMES.slice(0, CATEGORY_COUNT).map((name) => ({
+  // 1. Categories: fixed names; ids generated in code like every other table.
+  console.log(`[Seed] Inserting ${CATEGORY_NAMES.length} categories...`);
+  const categories = CATEGORY_NAMES.map((name) => ({
     id: faker.string.uuid(),
     name,
     slug: slugify(name),
@@ -129,7 +130,7 @@ async function seed() {
     return {
       id: faker.string.uuid(),
       categoryId: category.id,
-      name: `${faker.commerce.productName()} ${i + 1}`,
+      name: faker.commerce.productName(),
       description: faker.commerce.productDescription(),
       priceMinor: priceNaira * 100,
       currency: 'NGN',
