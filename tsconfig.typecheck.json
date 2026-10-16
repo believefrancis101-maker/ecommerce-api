@@ -1,0 +1,13 @@
+{
+  "//": "Type-check only: never emits. Extends the build config so both stay in sync; noEmit + rootDir '.' keep dist/ layout untouched (npm run build still uses tsconfig.json alone).",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["src/**/*", "prisma/seed.ts"],
+  "exclude": ["node_modules", "dist", "consumer"]
+}
