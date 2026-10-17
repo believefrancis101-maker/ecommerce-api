@@ -12,6 +12,12 @@ export type SuccessEnvelope<T = unknown> = {
   meta: SuccessMeta;
 };
 
+// Single-resource responses and /health carry data only: collection meta
+// (total/limit/offset/hasMore) is meaningless for a single row.
+export type ItemEnvelope<T = unknown> = {
+  data: T;
+};
+
 export type ErrorPayload = {
   code: string;
   message: string;
@@ -24,6 +30,17 @@ export type ErrorEnvelope = {
 export const ok = <T>(data: T, meta: SuccessMeta): SuccessEnvelope<T> => ({
   data,
   meta,
+});
+
+export const okItem = <T>(data: T): ItemEnvelope<T> => ({ data });
+
+// hasMore is derived from how many rows we actually returned, not from
+// limit+offset arithmetic, so a short tail page reports false.
+export const listMeta = (total: number, limit: number, offset: number, returned: number): SuccessMeta => ({
+  total,
+  limit,
+  offset,
+  hasMore: offset + returned < total,
 });
 
 export class ApiError extends Error {
