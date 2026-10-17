@@ -8,10 +8,11 @@ datasource db {
 }
 
 model Category {
-  id       String    @id @default(uuid()) @db.Uuid
-  name     String    @unique
-  slug     String    @unique
-  products Product[]
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  products  Product[]
 }
 
 model Product {
@@ -22,6 +23,7 @@ model Product {
   priceMinor  Int
   currency    String      @default("NGN")
   stock       Int
+  createdAt   DateTime    @default(now())
   category    Category    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   orderItems  OrderItem[]
 
@@ -30,10 +32,11 @@ model Product {
 }
 
 model Customer {
-  id     String  @id @default(uuid()) @db.Uuid
-  name   String
-  email  String  @unique
-  orders Order[]
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  email     String   @unique
+  createdAt DateTime @default(now())
+  orders    Order[]
 }
 
 model Order {

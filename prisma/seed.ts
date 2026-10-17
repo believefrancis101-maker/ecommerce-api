@@ -17,6 +17,11 @@ const ORDER_DATE_FROM = new Date('2026-01-01T00:00:00.000Z');
 const ORDER_DATE_TO = new Date('2026-09-01T00:00:00.000Z');
 const MAX_UPDATE_DELAY_HOURS = 72;
 
+// Categories/products/customers also get a FIXED createdAt (not now()): seeded
+// fixtures must be byte-identical between a fresh seed and a migrated database,
+// and the matching migration backfills pre-existing rows to this same value.
+const SEEDED_CREATED_AT = new Date('2026-01-01T00:00:00.000Z');
+
 // Weighted to mirror a realistic order funnel: most orders end up paid,
 // cancelled is the rarest. Weights are out of 100.
 const ORDER_STATUSES = [
@@ -98,6 +103,7 @@ async function seed() {
     id: faker.string.uuid(),
     name,
     slug: slugify(name),
+    createdAt: SEEDED_CREATED_AT,
   }));
   await insertInBatches(categories, (batch) =>
     prisma.category.createMany({ data: batch, skipDuplicates: true })
@@ -114,6 +120,7 @@ async function seed() {
       id: faker.string.uuid(),
       name: `${firstName} ${lastName}`,
       email: `${clean(firstName)}.${clean(lastName)}.${i + 1}@example.com`,
+      createdAt: SEEDED_CREATED_AT,
     };
   });
   await insertInBatches(customers, (batch) =>
@@ -135,6 +142,7 @@ async function seed() {
       priceMinor: priceNaira * 100,
       currency: 'NGN',
       stock: faker.number.int({ min: 5, max: 300 }),
+      createdAt: SEEDED_CREATED_AT,
     };
   });
   await insertInBatches(products, (batch) =>
