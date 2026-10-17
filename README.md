@@ -2,8 +2,9 @@
 
 E-commerce REST API built with Node.js, Express, TypeScript, PostgreSQL and Prisma.
 
-**Status:** database schema, CHECK constraints and a repeatable seed script are in place.
-The HTTP layer (`/api/v1`) is the next stage, so no endpoints are documented here yet.
+**Status:** schema, seed, Express foundation and the Stage 5 read endpoints are in place.
+`/api/v1` exposes paginated, filterable, sortable read routes for categories, products,
+customers and orders (see [API](#7-api)).
 
 ## Requirements
 
@@ -63,8 +64,9 @@ npx prisma migrate dev       # while developing: create + apply a new migration
 npm run seed
 ```
 
-- **Deterministic:** `faker.seed(42)` plus ids from `faker.string.uuid()`, and a fixed order
-  date window - no values depend on when the script runs.
+- **Deterministic:** `faker.seed(42)` plus ids from `faker.string.uuid()`, a fixed order
+  date window, and a fixed `createdAt` for categories/products/customers - no values depend
+  on when the script runs.
 - **Idempotent:** `createMany({ skipDuplicates: true })` on all five tables, so re-running
   inserts 0 rows. The script never deletes or truncates.
 - **Volumes:** 20 categories, 400 products, 300 customers, 500 orders with 1-5 items each.
@@ -78,24 +80,78 @@ npm run seed
 | `npm run dev` | Watch mode via `tsx` |
 | `npm run build` | Compile to `dist/` with `tsconfig.json` |
 | `npm start` | Run the compiled server from `dist/` |
-| `npm test` | `vitest run` |
+| `npm test` | `vitest run` (builds a throwaway test database first) |
 | `npm run seed` | Seed the database |
 | `npm run typecheck` | `tsc --noEmit` over `src/` **and** `prisma/seed.ts` |
 
 `typecheck` uses a separate `tsconfig.typecheck.json` (it extends the build config and turns
 emit off), so `npm run build` keeps its `dist/` layout unchanged.
 
-## 6. Layout
+## 6. Tests
+
+`npm test` needs no environment setup: a Vitest `globalSetup` hook creates `ecommerce_test`,
+applies every migration and runs the seed against it, and a `setupFiles` hook points the
+worker's `DATABASE_URL` at it before `src/config.ts` / `src/db.ts` load. The database is
+dropped again in teardown. Tests therefore never read or mutate your `ecommerce` data, and a
+clean checkout can run `npm test` without exporting `DATABASE_URL` by hand.
+
+## 7. API
+
+All routes are under `/api/v1`. Collection endpoints return a data envelope with pagination metadata; single-item endpoints and `/health` return data only without meta:
+
+```json
+// Collection responses:
+{ "data": [...], "meta": { "total": 20, "limit": 20, "offset": 0, "hasMore": false } }
+
+// Single-item responses & /health:
+{ "data": { ... } }
+
+// Error responses:
+{ "error": { "code": "NOT_FOUND", "message": "Product not found" } }
+```
+
+| Method & path | Filters | `sort` whitelist |
+| --- | --- | --- |
+| `GET /categories` | `q` (name, slug) | `name`, `createdAt` |
+| `GET /categories/:id` | - | - |
+| `GET /categories/:id/products` | - | `price`, `name`, `createdAt` |
+| `GET /products` | `category` (slug), `minPrice`, `maxPrice`, `inStock` | `price`, `name`, `createdAt` |
+| `GET /products/:id` | - | - |
+| `GET /customers` | `q` (name, email) | `name`, `createdAt` |
+| `GET /customers/:id` | - | - |
+| `GET /orders` | `status`, `customerId` | `createdAt` |
+| `GET /orders/:id` | - | - |
+
+Every list accepts `limit` (default 20, max 100, clamped), `offset` (default 0), `sort` and
+`order` (`asc`/`desc`). `sort` outside a resource's whitelist, a non-numeric `limit`/`offset`,
+`minPrice` greater than `maxPrice`, an unknown `status` and a malformed `customerId` all return `400 BAD_QUERY_PARAMS`. A
+malformed or unknown `:id` returns `404 NOT_FOUND` (never `500`).
+
+- `minPrice` / `maxPrice` are in **kobo** (minor units), matching the stored `priceMinor`.
+- If `offset` exceeds the total count (e.g. `GET /api/v1/products?offset=5000`), the response returns `200` with `data: []`, `hasMore: false`, and the accurate `total`.
+- `GET /orders` list items include `totalMinor`, computed across the page in one grouped query (`SUM(quantity * unitPriceMinor)` grouped by `orderId`).
+- `GET /orders/:id` returns `items` plus `totalMinor`, computed in the query
+  (`SUM(quantity * unitPriceMinor)`) and never stored.
+- `createdAt` is identical across seeded rows, so every order-by adds `id` as a tie-break
+  and offset pagination stays stable page to page.
+
+## 8. Layout
 
 ```
 prisma/schema.prisma      models, CHECK constraints, onDelete rules
 prisma/migrations/        versioned SQL migrations
 prisma/seed.ts            deterministic, idempotent seed script
 src/config.ts             single validated config object
-src/{middleware,routes,schemas}   HTTP layer (next stage)
+src/server.ts             server entry point (listens on config.port)
+src/app.ts                Express app: security, rate limit, routes, error handler
+src/db.ts                 one shared PrismaClient
+src/middleware/           error handler, UUID + pagination/sort validation
+src/routes/               v1 router; one file per resource
+src/test/                 test DB setup/teardown hooks
+vitest.config.ts          wires the test DB hooks into Vitest
 ```
 
-## 7. Design decisions
+## 9. Design decisions
 
 Each decision lists the alternative that was considered.
 
@@ -127,8 +183,36 @@ Each decision lists the alternative that was considered.
   anonymous volume is hash-named and easy to orphan accidentally on `docker rm`.
 - **No `uuid` package** - Prisma's `@default(uuid())` and `faker.string.uuid()` cover every
   id the project needs.
+- **`createdAt` added to `Category`, `Product` and `Customer`** (a Stage 5 migration with a
+  fixed backfill) so `sort=createdAt` is real for every resource. The backfill and the seed
+  both use the same fixed timestamp rather than `now()`, so a migrated database and a freshly
+  seeded one hold identical values. Alternative: drop `createdAt` from the sort whitelists
+  (contradicts the brief), or omit the backfill and stamp existing rows with the migration's
+  clock time (breaks reproducibility).
+- **Public sort names map to real columns in the route** (`price` -> `priceMinor`), so the
+  API never leaks internal field names and the whitelist is the only sortable surface.
+  Alternative: expose `priceMinor` directly.
+- **Every order-by ends with `id`** - all seeded rows share one `createdAt`, so without a
+  deterministic tie-break an offset page could repeat or skip rows. Alternative: vary
+  per-row timestamps (more seed machinery for no API benefit).
+- **Read endpoints reject unknown filter values** (e.g. `status=refunded` -> `400`), because
+  silently returning an empty list hides client typos. Alternative: accept any string and
+  return `200` with `total: 0`.
+- **Tests run against a throwaway `ecommerce_test` database** built and seeded by a Vitest
+  hook and dropped afterwards, rather than against `ecommerce`. Alternative: reuse
+  `ecommerce` (fast, but tests would read and could mutate your demo data).
+- **Test DB teardown asserts the database name is exactly `ecommerce_test`** before running
+  `DROP DATABASE`, guarding against catastrophic drops if configuration or environment variables shift.
+- **Single-resource responses and `/health` return `{ data }` with no `meta`** - pagination
+  collection metadata (`total`, `limit`, `offset`, `hasMore`) is meaningless for a single entity.
+  Lists keep `{ data, meta }`. Alternative: return uniform collection meta on single items (redundant noise).
+- **Order list totals computed in one grouped query** - `GET /orders` computes `totalMinor` for
+  each order in the page using `GROUP BY "orderId"` and `SUM(quantity * unitPriceMinor)`, avoiding
+  N per-row queries. Alternative: compute per row (N+1 queries) or persist totals (risks drift).
+- **`asyncHandler` wraps every async route** because Express 4 does not forward rejected
+  promises to the error handler, so a thrown `ApiError` would become an unhandled rejection.
 
-## 8. Known warnings
+## 10. Known warnings
 
 - Prisma prints `The configuration property package.json#prisma is deprecated and will be
   removed in Prisma 7`. The seed wiring still works on Prisma 6; moving it to a
