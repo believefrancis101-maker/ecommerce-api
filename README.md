@@ -13,6 +13,8 @@ customers and orders (see [API](#7-api)).
 
 ## 1. Environment
 
+Copy `.env.example` to `.env` and fill it in:
+
 ```bash
 cp .env.example .env
 ```
