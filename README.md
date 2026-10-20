@@ -185,118 +185,660 @@ erDiagram
 
 ---
 
-## 7. API
+## Endpoint Reference
 
-All routes are under `/api/v1`. Collection endpoints return a data envelope with pagination metadata; single-item endpoints and `/health` return data only without meta:
+All endpoints are mounted under `/api/v1`. 
 
+> [!NOTE]
+> **PowerShell Users:** Use `curl.exe` instead of `curl` (which is aliased to `Invoke-WebRequest`). For JSON request bodies, write the payload to a `.json` file and pass `--data "@body.json"` to prevent PowerShell from stripping quotes.
+
+Every example below targets `https://LIVE_URL_PLACEHOLDER`. Collection outputs use `limit=2` and are shortened for brevity.
+
+---
+
+### 1. Health Check
+
+#### `GET /api/v1/health`
+Returns server operational status.
+
+- **Query Parameters:** None
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/health"
+  ```
+- **Response (`200 OK`):**
+  ```json
+  {
+    "data": {
+      "status": "ok"
+    }
+  }
+  ```
+
+---
+
+### 2. Categories
+
+#### `GET /api/v1/categories`
+List categories with pagination, sorting, and search filters.
+
+- **Query Parameters:**
+  - `limit` (`integer`, optional, default: `20`, max: `100`): Page size.
+  - `offset` (`integer`, optional, default: `0`, min: `0`): Number of records to skip.
+  - `sort` (`string`, optional, default: `name`): Whitelist: `name`, `createdAt`.
+  - `order` (`string`, optional, default: `asc`): `asc` or `desc`.
+  - `name` (`string`, optional): Case-insensitive substring match.
+  - `slug` (`string`, optional): Exact lowercase slug match.
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/categories?limit=2"
+  ```
+- **Response (`200 OK`, shortened):**
+  ```json
+  {
+    "data": [
+      {
+        "id": "fd46d528-eb91-49f2-a8eb-bb54ccde88ca",
+        "name": "Appliances",
+        "slug": "appliances",
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "91ffb84d-a2ed-4fb9-96ed-006cf296fdd7",
+        "name": "Automotive",
+        "slug": "automotive",
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "meta": {
+      "total": 20,
+      "limit": 2,
+      "offset": 0,
+      "hasMore": true
+    }
+  }
+  ```
+
+#### `GET /api/v1/categories/:id`
+Retrieve a single category by UUID.
+
+- **Path Parameters:**
+  - `id` (`UUID`, required): Category ID.
+- **Query Parameters:** None
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/categories/fd46d528-eb91-49f2-a8eb-bb54ccde88ca"
+  ```
+- **Response (`200 OK`):**
+  ```json
+  {
+    "data": {
+      "id": "fd46d528-eb91-49f2-a8eb-bb54ccde88ca",
+      "name": "Appliances",
+      "slug": "appliances",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  }
+  ```
+
+#### `GET /api/v1/categories/:id/products`
+List all products belonging to a specific category.
+
+- **Path Parameters:**
+  - `id` (`UUID`, required): Category ID.
+- **Query Parameters:**
+  - `limit` (`integer`, optional, default: `20`, max: `100`): Page size.
+  - `offset` (`integer`, optional, default: `0`, min: `0`): Number of records to skip.
+  - `sort` (`string`, optional, default: `createdAt`): Whitelist: `price`, `name`, `createdAt`.
+  - `order` (`string`, optional, default: `desc`): `asc` or `desc`.
+  - `minPrice` (`integer`, optional, min: `0`): Minimum price in kobo.
+  - `maxPrice` (`integer`, optional, min: `0`): Maximum price in kobo (must be `>= minPrice`).
+  - `inStock` (`string`, optional): `true`, `false`, `1`, or `0`.
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/categories/fd46d528-eb91-49f2-a8eb-bb54ccde88ca/products?limit=2"
+  ```
+- **Response (`200 OK`, shortened):**
+  ```json
+  {
+    "data": [
+      {
+        "id": "0a9ba142-db35-4f9c-943c-aa89b45d48bf",
+        "name": "Premium Microwave",
+        "priceMinor": 6449600,
+        "currency": "NGN",
+        "stock": 254,
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "0be2abea-f558-460b-acb5-850811c0f8f0",
+        "name": "Original Vacuum Cleaner",
+        "priceMinor": 10681500,
+        "currency": "NGN",
+        "stock": 254,
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "meta": {
+      "total": 20,
+      "limit": 2,
+      "offset": 0,
+      "hasMore": true
+    }
+  }
+  ```
+
+---
+
+### 3. Products
+
+#### `GET /api/v1/products`
+List products across all categories with dual pagination (offset or forward cursor).
+
+- **Query Parameters:**
+  - `limit` (`integer`, optional, default: `20`, max: `100`): Page size.
+  - `offset` (`integer`, optional, default: `0`, min: `0`): Offset paging (mutually exclusive with `cursor`).
+  - `cursor` (`string`, optional): Base64URL opaque token from previous `meta.nextCursor` (mutually exclusive with `offset`).
+  - `sort` (`string`, optional, default: `price`): Whitelist: `price`, `name`, `createdAt`.
+  - `order` (`string`, optional, default: `asc`): `asc` or `desc`.
+  - `category` (`string`, optional): Category slug (e.g. `groceries`).
+  - `minPrice` (`integer`, optional, min: `0`): Minimum price in kobo.
+  - `maxPrice` (`integer`, optional, min: `0`): Maximum price in kobo.
+  - `inStock` (`string`, optional): `true`, `false`, `1`, or `0`.
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=2"
+  ```
+- **Response (`200 OK`, shortened):**
+  ```json
+  {
+    "data": [
+      {
+        "id": "6dc892dc-a7fe-4a59-8964-6964c815ec5f",
+        "name": "Everyday Granulated Sugar - 500g",
+        "description": "Durable granulated sugar for daily needs.",
+        "priceMinor": 145400,
+        "currency": "NGN",
+        "stock": 77,
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "category": {
+          "id": "72669a05-a8da-421a-809f-96a78f6fe311",
+          "name": "Groceries",
+          "slug": "groceries"
+        }
+      },
+      {
+        "id": "6a4609c6-6132-478f-9198-8d30a5044926",
+        "name": "Everyday Conditioner - 250ml",
+        "description": "Everyday conditioner that does the job.",
+        "priceMinor": 165600,
+        "currency": "NGN",
+        "stock": 293,
+        "createdAt": "2026-01-01T00:00:00.000Z",
+        "category": {
+          "id": "ce561907-8490-40d5-928c-391088abf85c",
+          "name": "Beauty & Personal Care",
+          "slug": "beauty-personal-care"
+        }
+      }
+    ],
+    "meta": {
+      "total": 400,
+      "limit": 2,
+      "offset": 0,
+      "hasMore": true,
+      "nextCursor": "NmE0NjA5YzYtNjEzMi00NzhmLTkxOTgtOGQzMGE1MDQ0OTI2"
+    }
+  }
+  ```
+
+#### `GET /api/v1/products/:id`
+Retrieve a single product by UUID.
+
+- **Path Parameters:**
+  - `id` (`UUID`, required): Product ID.
+- **Query Parameters:** None
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products/6dc892dc-a7fe-4a59-8964-6964c815ec5f"
+  ```
+- **Response (`200 OK`):**
+  ```json
+  {
+    "data": {
+      "id": "6dc892dc-a7fe-4a59-8964-6964c815ec5f",
+      "name": "Everyday Granulated Sugar - 500g",
+      "description": "Durable granulated sugar for daily needs.",
+      "priceMinor": 145400,
+      "currency": "NGN",
+      "stock": 77,
+      "createdAt": "2026-01-01T00:00:00.000Z",
+      "category": {
+        "id": "72669a05-a8da-421a-809f-96a78f6fe311",
+        "name": "Groceries",
+        "slug": "groceries"
+      }
+    }
+  }
+  ```
+
+---
+
+### 4. Customers
+
+#### `GET /api/v1/customers`
+List customers with pagination, sorting, and name/email search filters.
+
+- **Query Parameters:**
+  - `limit` (`integer`, optional, default: `20`, max: `100`): Page size.
+  - `offset` (`integer`, optional, default: `0`, min: `0`): Offset.
+  - `sort` (`string`, optional, default: `name`): Whitelist: `name`, `createdAt`.
+  - `order` (`string`, optional, default: `asc`): `asc` or `desc`.
+  - `name` (`string`, optional): Case-insensitive substring match.
+  - `email` (`string`, optional): Case-insensitive substring match.
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/customers?limit=2"
+  ```
+- **Response (`200 OK`, shortened):**
+  ```json
+  {
+    "data": [
+      {
+        "id": "ae3a192b-4792-4b4a-a2b2-63b4ee3916ba",
+        "name": "Abagail Bogisich",
+        "email": "abagail.bogisich.210@example.com",
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "7b3d933a-d64d-4a77-83a5-f779ec7b9737",
+        "name": "Adam Raynor",
+        "email": "adam.raynor.155@example.com",
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      }
+    ],
+    "meta": {
+      "total": 300,
+      "limit": 2,
+      "offset": 0,
+      "hasMore": true
+    }
+  }
+  ```
+
+#### `GET /api/v1/customers/:id`
+Retrieve a single customer by UUID.
+
+- **Path Parameters:**
+  - `id` (`UUID`, required): Customer ID.
+- **Query Parameters:** None
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/customers/ae3a192b-4792-4b4a-a2b2-63b4ee3916ba"
+  ```
+- **Response (`200 OK`):**
+  ```json
+  {
+    "data": {
+      "id": "ae3a192b-4792-4b4a-a2b2-63b4ee3916ba",
+      "name": "Abagail Bogisich",
+      "email": "abagail.bogisich.210@example.com",
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+  }
+  ```
+
+---
+
+### 5. Orders
+
+#### `GET /api/v1/orders`
+List orders with status and customer filters. Totals are computed across the page in one grouped query (`totalMinor`).
+
+- **Query Parameters:**
+  - `limit` (`integer`, optional, default: `20`, max: `100`): Page size.
+  - `offset` (`integer`, optional, default: `0`, min: `0`): Offset.
+  - `sort` (`string`, optional, default: `createdAt`): Whitelist: `createdAt`.
+  - `order` (`string`, optional, default: `desc`): `asc` or `desc`.
+  - `status` (`string`, optional): Whitelist: `pending`, `paid`, `shipped`, `cancelled`.
+  - `customerId` (`UUID`, optional): Valid customer UUID.
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/orders?limit=2"
+  ```
+- **Response (`200 OK`, shortened):**
+  ```json
+  {
+    "data": [
+      {
+        "id": "ef6ac626-cc32-4e0b-b0de-41746a35ca5a",
+        "customerId": "d0e7aaea-9182-4b8a-801b-110fb545ca22",
+        "status": "paid",
+        "currency": "NGN",
+        "createdAt": "2026-08-30T13:36:16.257Z",
+        "updatedAt": "2026-08-31T02:36:16.257Z",
+        "totalMinor": 7481800
+      },
+      {
+        "id": "29687052-7eff-4f0b-a4dd-6744fe341fe8",
+        "customerId": "743a0c13-6755-4fa0-b6e4-1c990293884f",
+        "status": "paid",
+        "currency": "NGN",
+        "createdAt": "2026-08-30T10:30:46.455Z",
+        "updatedAt": "2026-09-02T01:30:46.455Z",
+        "totalMinor": 13654800
+      }
+    ],
+    "meta": {
+      "total": 500,
+      "limit": 2,
+      "offset": 0,
+      "hasMore": true
+    }
+  }
+  ```
+
+#### `GET /api/v1/orders/:id`
+Retrieve full order details including line items and dynamically computed `totalMinor`.
+
+- **Path Parameters:**
+  - `id` (`UUID`, required): Order ID.
+- **Query Parameters:** None
+- **cURL:**
+  ```bash
+  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/orders/ef6ac626-cc32-4e0b-b0de-41746a35ca5a"
+  ```
+- **Response (`200 OK`):**
+  ```json
+  {
+    "data": {
+      "id": "ef6ac626-cc32-4e0b-b0de-41746a35ca5a",
+      "customerId": "d0e7aaea-9182-4b8a-801b-110fb545ca22",
+      "status": "paid",
+      "currency": "NGN",
+      "createdAt": "2026-08-30T13:36:16.257Z",
+      "updatedAt": "2026-08-31T02:36:16.257Z",
+      "items": [
+        {
+          "id": "5d5a2842-9afa-48ed-988f-9b1b41db6630",
+          "productId": "a3620387-83ab-45ea-bb40-dd15aad26160",
+          "quantity": 1,
+          "unitPriceMinor": 7481800
+        }
+      ],
+      "totalMinor": 7481800
+    }
+  }
+  ```
+
+#### `POST /api/v1/orders`
+Create an order and its items in a single atomic `$transaction`. Copies `unitPriceMinor` from product catalog at order time.
+
+- **Headers:** `Content-Type: application/json`
+- **Request Body Rules:**
+  - `customerId`: Valid UUID of an existing customer (missing -> `422`).
+  - `items`: 1 to 50 items (`config.orders.maxItemsPerOrder`).
+  - `items[].productId`: Valid UUID of an existing product (missing -> `422`, duplicate -> `422`).
+  - `items[].quantity`: Integer between 1 and 1000 (`config.orders.maxQuantityPerItem`).
+  - Schema is `.strict()`: extra fields trigger `422`.
+- **cURL:**
+  ```bash
+  curl -i -X POST "https://LIVE_URL_PLACEHOLDER/api/v1/orders" \
+    -H "Content-Type: application/json" \
+    -d '{
+      "customerId": "ae3a192b-4792-4b4a-a2b2-63b4ee3916ba",
+      "items": [
+        {
+          "productId": "6dc892dc-a7fe-4a59-8964-6964c815ec5f",
+          "quantity": 2
+        }
+      ]
+    }'
+  ```
+- **Response (`201 Created`):**
+  - **Location Header:** `/api/v1/orders/d1006e2d-edd3-48cd-869f-7959092079b9`
+  ```json
+  {
+    "data": {
+      "id": "d1006e2d-edd3-48cd-869f-7959092079b9",
+      "customerId": "ae3a192b-4792-4b4a-a2b2-63b4ee3916ba",
+      "status": "pending",
+      "currency": "NGN",
+      "createdAt": "2026-10-20T11:12:31.309Z",
+      "updatedAt": "2026-10-20T11:12:31.309Z",
+      "items": [
+        {
+          "id": "45a765c7-cddc-4153-93a5-f4fee7cb5e5b",
+          "productId": "6dc892dc-a7fe-4a59-8964-6964c815ec5f",
+          "quantity": 2,
+          "unitPriceMinor": 145400
+        }
+      ],
+      "totalMinor": 290800
+    }
+  }
+  ```
+
+#### `PATCH /api/v1/orders/:id`
+Update an order's status. Returns the complete order detail matching `GET /orders/:id`.
+
+- **Path Parameters:**
+  - `id` (`UUID`, required): Order ID.
+- **Headers:** `Content-Type: application/json`
+- **Request Body:**
+  - `status` (`string`, required): One of `pending`, `paid`, `shipped`, `cancelled`.
+- **cURL:**
+  ```bash
+  curl -i -X PATCH "https://LIVE_URL_PLACEHOLDER/api/v1/orders/d1006e2d-edd3-48cd-869f-7959092079b9" \
+    -H "Content-Type: application/json" \
+    -d '{"status":"paid"}'
+  ```
+- **Response (`200 OK`):**
+  ```json
+  {
+    "data": {
+      "id": "d1006e2d-edd3-48cd-869f-7959092079b9",
+      "customerId": "ae3a192b-4792-4b4a-a2b2-63b4ee3916ba",
+      "status": "paid",
+      "currency": "NGN",
+      "createdAt": "2026-10-20T11:12:31.309Z",
+      "updatedAt": "2026-10-20T11:12:31.327Z",
+      "items": [
+        {
+          "id": "45a765c7-cddc-4153-93a5-f4fee7cb5e5b",
+          "productId": "6dc892dc-a7fe-4a59-8964-6964c815ec5f",
+          "quantity": 2,
+          "unitPriceMinor": 145400
+        }
+      ],
+      "totalMinor": 290800
+    }
+  }
+  ```
+
+#### `DELETE /api/v1/orders/:id`
+Permanently delete an order and cascade-delete its order items.
+
+- **Path Parameters:**
+  - `id` (`UUID`, required): Order ID.
+- **cURL:**
+  ```bash
+  curl -i -X DELETE "https://LIVE_URL_PLACEHOLDER/api/v1/orders/d1006e2d-edd3-48cd-869f-7959092079b9"
+  ```
+- **Response (`204 No Content`):**
+  - Empty body. A second `DELETE` to the same ID returns `404 NOT_FOUND`.
+
+---
+
+## Pagination, Filtering, and Sorting
+
+### 1. Pagination Modes: Offset vs. Cursor
+
+All list endpoints (`/categories`, `/categories/:id/products`, `/products`, `/customers`, `/orders`) support offset pagination. In addition, `/products` supports forward-only cursor pagination.
+
+#### Offset Pagination
+- `limit`: Number of rows to return (default: `20`, max: `100`).
+- `offset`: Number of rows to skip (default: `0`).
+- **Response Metadata:**
+  ```json
+  "meta": { "total": 400, "limit": 20, "offset": 0, "hasMore": true }
+  ```
+- If `offset` exceeds `total` (e.g. `?offset=5000`), the API returns `200 OK` with `data: []`, `hasMore: false`, and the accurate `total`.
+
+#### Cursor Pagination (`GET /api/v1/products`)
+Cursor pagination provides stable, drift-free forward scrolling:
+- Pass `cursor=<token>` using the opaque string returned in `meta.nextCursor`.
+- `meta` switches to cursor format with **no** `offset`:
+  ```json
+  "meta": { "total": 400, "limit": 2, "hasMore": true, "nextCursor": "YzJkYTMyYWUtYjU5NC00ZmI5LWE2OTUtMDZlYTFlNDM0OTg3" }
+  ```
+- **Rules & Restrictions:**
+  - Combining `cursor` and `offset` on the same request returns `400 BAD_QUERY_PARAMS`.
+  - An empty or malformed cursor returns `400 BAD_QUERY_PARAMS`.
+  - If the product named by the cursor has been deleted or no longer satisfies the request filters, the API returns `400 BAD_QUERY_PARAMS` rather than mistakenly pretending the client reached the end of the list.
+  - Forward-only: clients traverse forward using `nextCursor`; backward navigation is handled client-side.
+
+#### Worked Cursor Example
+
+**Step 1: Request Page 1**
+```bash
+curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=2"
+```
 ```json
-// Collection responses:
-{ "data": [...], "meta": { "total": 20, "limit": 20, "offset": 0, "hasMore": false } }
-
-// Single-item responses & /health:
-{ "data": { ... } }
-
-// Error responses:
-{ "error": { "code": "NOT_FOUND", "message": "Product not found" } }
+{
+  "data": [
+    {
+      "id": "6dc892dc-a7fe-4a59-8964-6964c815ec5f",
+      "name": "Everyday Granulated Sugar - 500g",
+      "priceMinor": 145400
+    },
+    {
+      "id": "6a4609c6-6132-478f-9198-8d30a5044926",
+      "name": "Everyday Conditioner - 250ml",
+      "priceMinor": 165600
+    }
+  ],
+  "meta": {
+    "total": 400,
+    "limit": 2,
+    "offset": 0,
+    "hasMore": true,
+    "nextCursor": "NmE0NjA5YzYtNjEzMi00NzhmLTkxOTgtOGQzMGE1MDQ0OTI2"
+  }
+}
 ```
 
-Every error uses that envelope. The complete set of `code` values the API can return:
+**Step 2: Request Page 2 with `cursor=NmE0NjA5YzYtNjEzMi00NzhmLTkxOTgtOGQzMGE1MDQ0OTI2`**
+```bash
+curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=2&cursor=NmE0NjA5YzYtNjEzMi00NzhmLTkxOTgtOGQzMGE1MDQ0OTI2"
+```
+```json
+{
+  "data": [
+    {
+      "id": "237bf788-8800-411b-b3ee-ff482ced6c10",
+      "name": "Essential Tomato Paste",
+      "priceMinor": 206900
+    },
+    {
+      "id": "c2da32ae-b594-4fb9-a695-06ea1e434987",
+      "name": "Classic Cat Litter",
+      "priceMinor": 246200
+    }
+  ],
+  "meta": {
+    "total": 400,
+    "limit": 2,
+    "hasMore": true,
+    "nextCursor": "YzJkYTMyYWUtYjU5NC00ZmI5LWE2OTUtMDZlYTFlNDM0OTg3"
+  }
+}
+```
 
-| HTTP | `code` | When it is returned |
-| --- | --- | --- |
-| `400` | `BAD_QUERY_PARAMS` | invalid `limit`/`offset`/`sort`/`order` (including `limit=0` and an empty `limit`), an empty or unknown filter value, a malformed `customerId` filter, `minPrice > maxPrice`, or a bad `cursor` (combined with `offset`, undecodable, empty, or no longer pointing at a row in the result set) |
-| `400` | `INVALID_JSON` | the request body is not valid JSON |
-| `404` | `NOT_FOUND` | unknown route, unknown **or** malformed `:id`, or a second `DELETE` of an already-deleted order |
-| `413` | `PAYLOAD_TOO_LARGE` | the request body exceeds `config.jsonBodyLimit` (`100kb`) |
-| `422` | `UNPROCESSABLE_ENTITY` | a write body fails validation, or references a customer/product that does not exist |
-| `429` | `TOO_MANY_REQUESTS` | the rate limit is exceeded (`100` requests / `60s` per IP) |
-| `500` | `INTERNAL_ERROR` | an unexpected server error; the message is always the generic `"Internal server error"` - the real error is logged server-side only |
+---
 
+### 2. Clamp-Versus-Reject Rule
 
-| Method & path | Filters | `sort` whitelist |
-| --- | --- | --- |
-| `GET /categories` | `name` (contains, case-insensitive), `slug` (exact, lowercase) | `name`, `createdAt` |
-| `GET /categories/:id` | - | - |
-| `GET /categories/:id/products` | `minPrice`, `maxPrice`, `inStock` | `price`, `name`, `createdAt` |
-| `GET /products` | `category` (slug), `minPrice`, `maxPrice`, `inStock` | `price`, `name`, `createdAt` |
-| `GET /products/:id` | - | - |
-| `GET /customers` | `name` (contains, case-insensitive), `email` (contains, case-insensitive) | `name`, `createdAt` |
-| `GET /customers/:id` | - | - |
-| `GET /orders` | `status`, `customerId` | `createdAt` |
-| `GET /orders/:id` | - | - |
+The shared pagination validation schema enforces a strict clamp-versus-reject contract across every list endpoint:
+- **Clamped:** If `limit` is a positive integer greater than `maxLimit` (`100`), it is clamped to `100`. For example, `?limit=5000` succeeds with `200 OK` and `meta.limit = 100`.
+- **Rejected:** If `limit` is `0`, negative (e.g. `?limit=-5`), non-numeric (`?limit=abc`), or empty (`?limit=`), the request is rejected with `400 BAD_QUERY_PARAMS`.
 
-Every list accepts `limit` (default 20, max 100), `offset` (default 0), `sort` and `order` (`asc`/`desc`).
+---
 
-- **`limit` is clamped when it is too large, rejected when it is not a positive integer.** `limit=5000` returns
-  `200` with `meta.limit = 100` (clamped to `config.pagination.maxLimit`), while `limit=0`, `limit=-5`, `limit=abc`
-  and an empty `limit` (`?limit=`) all return `400 BAD_QUERY_PARAMS`. An absent `limit` uses the default (`20`).
-  This rule lives in the shared pagination schema, so it applies to every list endpoint.
-- `offset=0` is valid (any non-negative integer is); a negative or non-numeric `offset` returns `400 BAD_QUERY_PARAMS`.
-- **`GET /products` also supports forward-only cursor paging.** Pass `cursor` - the opaque token from
-  `meta.nextCursor` - instead of `offset`, and the page's `meta` becomes `{ total, limit, hasMore, nextCursor }`
-  with **no** `offset`. Combining `cursor` with `offset`, an empty or undecodable cursor, and a cursor whose
-  product is no longer in the (filtered) result set are all `400 BAD_QUERY_PARAMS`. Offset mode is unchanged
-  except that it now also carries `nextCursor` (`null` on the last page), so a client can switch to cursor
-  paging mid-browse.
-- **An empty filter value is rejected, never silently ignored** - `?name=` / `?slug=` on `/categories`,
-  `?name=` / `?email=` on `/customers`, `?category=` / `?minPrice=` / `?maxPrice=` / `?inStock=` on `/products`,
-  `?minPrice=` / `?maxPrice=` / `?inStock=` on `/categories/:id/products`, and `?status=` / `?customerId=` on
-  `/orders` all return `400 BAD_QUERY_PARAMS` rather than "matching everything". The numeric filters treat `0` as a
-  real bound (`minPrice=0` is `>= 0`, `maxPrice=0` is `<= 0`), so a value of `0` is never dropped.
-- **Multiple filters on one request combine with `AND`** - e.g. `/customers?name=ann&email=gmail.com` keeps only rows
-  that satisfy both, and `/categories?name=electronics&slug=electronics` only the one category matching both.
-- `GET /categories` `slug` is an **exact** match (the value is lowercased first, so `slug=ELECTRONICS` matches the
-  stored `electronics`; a prefix like `slug=electro` matches nothing), while `name` is a case-insensitive substring.
-- `GET /customers` `name` and `email` are both case-insensitive substring (`contains`) matches.
-- `GET /categories/:id/products` accepts the **same** `minPrice` / `maxPrice` / `inStock` filters as `GET /products`
-  - they come from one shared schema and one shared `where` builder, so a fix to one endpoint can never drift from
-  the other. `minPrice > maxPrice` is rejected with `400` on both.
+### 3. Filtering Rules
 
-`sort` outside a resource's whitelist, `minPrice` greater than `maxPrice`, an unknown `status` and a malformed
-`customerId` all return `400 BAD_QUERY_PARAMS`. A malformed or unknown `:id` returns `404 NOT_FOUND` (never `500`).
+- **Empty Filter Values Rejected:** Empty parameters (e.g. `?name=`, `?slug=`, `?minPrice=`, `?status=`) return `400 BAD_QUERY_PARAMS` rather than being silently ignored.
+- **Literal LIKE Wildcards:** Special SQL wildcard characters (`%` and `_`) passed in text search filters (`name`, `email`) are escaped and matched literally. A search for `?name=%25` searches for a literal `%` character and returns 0 rows.
+- **Multiple Filters Combine with AND:** Supplying multiple filters (e.g. `/customers?name=ann&email=gmail.com`) returns only entities matching both constraints.
+- **Price Bounds in Minor Units:** `minPrice` and `maxPrice` are integers representing kobo (`150000` = NGN 1,500.00). Setting `minPrice > maxPrice` returns `400 BAD_QUERY_PARAMS`.
 
-- `minPrice` / `maxPrice` are in **kobo** (minor units), matching the stored `priceMinor`.
-- If `offset` exceeds the total count (e.g. `GET /api/v1/products?offset=5000`), the response returns `200` with `data: []`, `hasMore: false`, and the accurate `total`.
-- `GET /orders` list items include `totalMinor`, computed across the page in one grouped query (`SUM(quantity * unitPriceMinor)` grouped by `orderId`).
-- `GET /orders/:id` returns `items` plus `totalMinor`, computed in the query
-  (`SUM(quantity * unitPriceMinor)`) and never stored.
-- Money totals cast before multiplying: `quantity` and `unitPriceMinor` are both `int4`, so the
-  query uses `SUM(quantity::bigint * unitPriceMinor)`. Without the cast `int4 * int4` overflows
-  above `2,147,483,647` (e.g. `2 x 2,000,000,000`) before `SUM` ever runs.
-- `createdAt` is identical across seeded rows, so every order-by adds `id` as a tie-break
-  and offset pagination stays stable page to page.
+---
 
-### Write endpoints
+### 4. Sorting Whitelists
 
-| Method & path | Body | Success |
-| --- | --- | --- |
-| `POST /orders` | `{ customerId, items: [{ productId, quantity }] }` | `201` + `Location: /api/v1/orders/:id`; body carries `items` and computed `totalMinor` |
-| `PATCH /orders/:id` | `{ status }`, one of `pending`, `paid`, `shipped`, `cancelled` | `200` with the **same shape as `GET /orders/:id`** (order head + `items` + computed `totalMinor`) |
-| `DELETE /orders/:id` | none | `204` with an empty body |
+Every endpoint orders by a strict whitelist, with `id` appended as a deterministic tie-breaker:
+- `GET /categories`: `name`, `createdAt` (default: `name asc`).
+- `GET /categories/:id/products`: `price`, `name`, `createdAt` (default: `createdAt desc`).
+- `GET /products`: `price`, `name`, `createdAt` (default: `price asc`).
+- `GET /customers`: `name`, `createdAt` (default: `name asc`).
+- `GET /orders`: `createdAt` (default: `createdAt desc`).
 
-- Request bodies use **strict** Zod schemas: an unknown field is rejected with `422` naming that
-  field instead of being silently dropped. `items` must hold 1–`config.orders.maxItemsPerOrder`
-  entries (`50`), each `quantity` must be 1–`config.orders.maxQuantityPerItem`, and
-  **`maxQuantityPerItem` is `1000`**. All ids must be UUIDs. `422` messages name the exact location
-  (`items[0].quantity`, `items[1].productId`, `note`, `customerId`).
-- A well-formed `customerId`/`productId` that does not exist is also a `422` naming the field -
-  `customerId: customer does not exist`, `items[0].productId: product does not exist` - because the
-  collection URI `/api/v1/orders` itself exists; replying `404` would blame the wrong resource.
-- `POST` performs its writes in **one `$transaction`**: the order and its items are inserted
-  together, each item's `unitPriceMinor` is copied from the product's current price at order time,
-  and `totalMinor` is computed from the inserted rows. It does **not** decrement stock and contains
-  no payment logic.
-- `PATCH` changes `status` only and enforces **no transition rules**: any of the four statuses may
-  move to any other, in any order (there is no state machine). Its response is the full order
-  detail, so a client never needs a follow-up `GET`.
-- `PATCH`/`DELETE` treat both an **unknown** and a **malformed** `:id` as `404 NOT_FOUND`; a second
-  `DELETE` of the same id is likewise `404`.
-- The customer/product lookups run **before** the transaction, so a bad reference is rejected
-  without opening a write transaction at all.
-- Body-size and parse failures are handled before any route: over `config.jsonBodyLimit` (`100kb`)
-  -> `413 PAYLOAD_TOO_LARGE`, malformed JSON -> `400 INVALID_JSON`. The rate limiter is mounted
-  **above** `express.json`, so these malformed/oversized requests are counted too (they carry
-  `RateLimit-*` headers, and a flood of them still hits `429`).
+Supplying an unknown sort column returns `400 BAD_QUERY_PARAMS`.
+
+---
+
+## Error Handling
+
+All error responses use a predictable, standard error envelope:
+
+```json
+{
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Product not found"
+  }
+}
+```
+
+### Complete Error Code Reference
+
+| HTTP | Error `code` | Scenario |
+| :--- | :--- | :--- |
+| `400` | `BAD_QUERY_PARAMS` | Invalid query parameters (`limit=0`, negative offset, invalid sort column, empty filter string, malformed UUID in query, `minPrice > maxPrice`, bad cursor token, or cursor combined with offset). |
+| `400` | `INVALID_JSON` | Request payload body is not valid JSON. |
+| `404` | `NOT_FOUND` | Unknown route, non-existent entity `:id`, malformed `:id` (non-UUID path parameter), or second `DELETE` of an already-deleted order. |
+| `413` | `PAYLOAD_TOO_LARGE` | Request payload body exceeds `config.jsonBodyLimit` (`100kb`). |
+| `422` | `UNPROCESSABLE_ENTITY` | Request body fails schema validation (extra keys, quantity outside 1–1000, >50 items, duplicate products), or references a customer/product UUID that does not exist in the database. |
+| `429` | `TOO_MANY_REQUESTS` | IP exceeds rate limit (`100` requests / `60s`). Includes `Retry-After` header. |
+| `500` | `INTERNAL_ERROR` | Unhandled server error. Body always returns generic message `"Internal server error"`; underlying errors are logged server-side only. |
+
+---
+
+## Rate Limiting
+
+Rate limiting is enforced by `express-rate-limit` in `src/app.ts`:
+- **Limit:** `100` requests per `60` seconds (`windowMs: 60000`) per IP address.
+- **Headers Sent:**
+  - `RateLimit-Limit`: `100`
+  - `RateLimit-Remaining`: Count of remaining requests in the active window.
+  - `RateLimit-Reset`: Seconds remaining until quota reset.
+- **Rate Limit Exceeded:**
+  - Status: `429 Too Many Requests`
+  - Header: `Retry-After: 60`
+  - Body:
+    ```json
+    {
+      "error": {
+        "code": "TOO_MANY_REQUESTS",
+        "message": "Too many requests, please try again later"
+      }
+    }
+    ```
+- **Architectural Placement:** The limiter is mounted **above** `express.json()`. Oversized payloads (`413`) and malformed JSON floods (`400`) are counted against the caller's budget before payload parsing occurs.
+
+---
+
+---
 
 ## 8. Layout
 
