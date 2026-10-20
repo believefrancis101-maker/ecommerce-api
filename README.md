@@ -98,6 +98,93 @@ hook creates `ecommerce_test`, applies every migration and runs the seed against
 load. The test harness creates and drops its own `ecommerce_test` database, so no `DATABASE_URL`
 is needed for `npm test`. Tests therefore never read or mutate your `ecommerce` data.
 
+## Resources & Data Model
+
+The API manages five core resources: `Category`, `Product`, `Customer`, `Order`, and `OrderItem`.
+
+### Entity Relationship Diagram
+
+```mermaid
+erDiagram
+    Category ||--o{ Product : "contains (1:N)"
+    Product ||--o{ OrderItem : "ordered in (1:N)"
+    Customer ||--o{ Order : "places (1:N)"
+    Order ||--|{ OrderItem : "contains (1:N, cascade)"
+```
+
+### Database Rules & Constraints
+
+- **Primary Keys:** UUID v4 (`@id @default(uuid()) @db.Uuid`) on all tables.
+- **Foreign Keys & Deletion Rules:**
+  - `Product.categoryId -> Category.id`: `ON DELETE RESTRICT` (cannot delete a category containing products).
+  - `Order.customerId -> Customer.id`: `ON DELETE RESTRICT` (cannot delete a customer with order history).
+  - `OrderItem.orderId -> Order.id`: `ON DELETE CASCADE` (deleting an order cascades and deletes its line items).
+  - `OrderItem.productId -> Product.id`: `ON DELETE RESTRICT` (cannot delete a product referenced in orders).
+- **Unique Constraints:**
+  - `Category`: `name` is unique (`Category_name_key`); `slug` is unique (`Category_slug_key`).
+  - `Customer`: `email` is unique (`Customer_email_key`).
+- **PostgreSQL CHECK Constraints:**
+  - `Order`: `chk_order_status` enforces `status IN ('pending', 'paid', 'shipped', 'cancelled')`.
+  - `Product`: `chk_product_price` enforces `priceMinor >= 0`.
+  - `Product`: `chk_product_stock` enforces `stock >= 0`.
+  - `OrderItem`: `chk_order_item_quantity` enforces `quantity >= 1`.
+  - `OrderItem`: `chk_order_item_unit_price` enforces `unitPriceMinor >= 0`.
+
+---
+
+### Resource Schemas
+
+#### Category
+| Field | Type | Required | Notes |
+| :--- | :--- | :---: | :--- |
+| `id` | `UUID` | Yes | Primary key |
+| `name` | `String` | Yes | Unique category title |
+| `slug` | `String` | Yes | Unique URL-safe slug derived from name |
+| `createdAt` | `DateTime` | Yes | Creation timestamp (ISO 8601) |
+
+#### Product
+| Field | Type | Required | Notes |
+| :--- | :--- | :---: | :--- |
+| `id` | `UUID` | Yes | Primary key |
+| `categoryId` | `UUID` | Yes | Foreign key to `Category.id` (`onDelete: Restrict`) |
+| `name` | `String` | Yes | Product name |
+| `description` | `String` | No | Optional description |
+| `priceMinor` | `Integer` | Yes | Price in kobo (NGN minor units); CHECK `priceMinor >= 0` |
+| `currency` | `String` | Yes | Defaults to `"NGN"` |
+| `stock` | `Integer` | Yes | Inventory stock count; CHECK `stock >= 0` |
+| `createdAt` | `DateTime` | Yes | Creation timestamp (ISO 8601) |
+
+#### Customer
+| Field | Type | Required | Notes |
+| :--- | :--- | :---: | :--- |
+| `id` | `UUID` | Yes | Primary key |
+| `name` | `String` | Yes | Full name |
+| `email` | `String` | Yes | Unique email address |
+| `createdAt` | `DateTime` | Yes | Creation timestamp (ISO 8601) |
+
+#### Order
+| Field | Type | Required | Notes |
+| :--- | :--- | :---: | :--- |
+| `id` | `UUID` | Yes | Primary key |
+| `customerId` | `UUID` | Yes | Foreign key to `Customer.id` (`onDelete: Restrict`) |
+| `status` | `String` | Yes | Order status; CHECK `status IN ('pending', 'paid', 'shipped', 'cancelled')` |
+| `currency` | `String` | Yes | Defaults to `"NGN"` |
+| `createdAt` | `DateTime` | Yes | Creation timestamp (ISO 8601) |
+| `updatedAt` | `DateTime` | Yes | Update timestamp (ISO 8601) |
+
+#### OrderItem
+| Field | Type | Required | Notes |
+| :--- | :--- | :---: | :--- |
+| `id` | `UUID` | Yes | Primary key |
+| `orderId` | `UUID` | Yes | Foreign key to `Order.id` (`onDelete: Cascade`) |
+| `productId` | `UUID` | Yes | Foreign key to `Product.id` (`onDelete: Restrict`) |
+| `quantity` | `Integer` | Yes | Count ordered; CHECK `quantity >= 1`, max 1000 |
+| `unitPriceMinor` | `Integer` | Yes | Unit price in kobo copied from product at order time; CHECK `unitPriceMinor >= 0` |
+
+---
+
+---
+
 ## 7. API
 
 All routes are under `/api/v1`. Collection endpoints return a data envelope with pagination metadata; single-item endpoints and `/health` return data only without meta:
