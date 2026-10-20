@@ -117,7 +117,7 @@ Every error uses that envelope. The complete set of `code` values the API can re
 
 | HTTP | `code` | When it is returned |
 | --- | --- | --- |
-| `400` | `BAD_QUERY_PARAMS` | invalid `limit`/`offset`/`sort`/`order` (including `limit=0` and an empty `limit`), an empty or unknown filter value, a malformed `customerId` filter, or `minPrice > maxPrice` |
+| `400` | `BAD_QUERY_PARAMS` | invalid `limit`/`offset`/`sort`/`order` (including `limit=0` and an empty `limit`), an empty or unknown filter value, a malformed `customerId` filter, `minPrice > maxPrice`, or a bad `cursor` (combined with `offset`, undecodable, empty, or no longer pointing at a row in the result set) |
 | `400` | `INVALID_JSON` | the request body is not valid JSON |
 | `404` | `NOT_FOUND` | unknown route, unknown **or** malformed `:id`, or a second `DELETE` of an already-deleted order |
 | `413` | `PAYLOAD_TOO_LARGE` | the request body exceeds `config.jsonBodyLimit` (`100kb`) |
@@ -145,6 +145,12 @@ Every list accepts `limit` (default 20, max 100), `offset` (default 0), `sort` a
   and an empty `limit` (`?limit=`) all return `400 BAD_QUERY_PARAMS`. An absent `limit` uses the default (`20`).
   This rule lives in the shared pagination schema, so it applies to every list endpoint.
 - `offset=0` is valid (any non-negative integer is); a negative or non-numeric `offset` returns `400 BAD_QUERY_PARAMS`.
+- **`GET /products` also supports forward-only cursor paging.** Pass `cursor` - the opaque token from
+  `meta.nextCursor` - instead of `offset`, and the page's `meta` becomes `{ total, limit, hasMore, nextCursor }`
+  with **no** `offset`. Combining `cursor` with `offset`, an empty or undecodable cursor, and a cursor whose
+  product is no longer in the (filtered) result set are all `400 BAD_QUERY_PARAMS`. Offset mode is unchanged
+  except that it now also carries `nextCursor` (`null` on the last page), so a client can switch to cursor
+  paging mid-browse.
 - **An empty filter value is rejected, never silently ignored** - `?name=` / `?slug=` on `/categories`,
   `?name=` / `?email=` on `/customers`, `?category=` / `?minPrice=` / `?maxPrice=` / `?inStock=` on `/products`,
   `?minPrice=` / `?maxPrice=` / `?inStock=` on `/categories/:id/products`, and `?status=` / `?customerId=` on
@@ -266,6 +272,23 @@ Each decision lists the alternative that was considered.
 - **Every order-by ends with `id`** - all seeded rows share one `createdAt`, so without a
   deterministic tie-break an offset page could repeat or skip rows. Alternative: vary
   per-row timestamps (more seed machinery for no API benefit).
+- **`/products` offers both offset and cursor pagination; the other lists stay offset-only.** Offset can
+  jump straight to any page, but if rows are inserted or deleted mid-browse every later page shifts, so a
+  client can see a row twice or miss one - and a deep offset makes the database scan and discard all the
+  skipped rows. A cursor is stable (it names a row, so it neither skips nor repeats under concurrent
+  writes) and stays fast at depth, but it only moves forward and cannot jump to page N. `/products` is the
+  largest, busiest collection so it gets both; categories, customers and orders stay offset-only because
+  they are small and rarely paged deeply, where the extra `cursor`/`nextCursor` surface would not pay for
+  itself. Alternative: cursor-only everywhere (loses direct page jumps for the small lists) or offset-only
+  on `/products` (the collection where deep paging hurts most).
+  - The token is **opaque by convention**: clients must treat `nextCursor` as a black box and never parse
+    or construct it, so the encoding can change without a breaking API change.
+  - A **deleted row invalidates the cursor** that named it (and so does a cursor that no longer matches the
+    current filters) - the API answers `400 BAD_QUERY_PARAMS` instead of pretending it reached the end.
+  - Cursor mode has **no previous page**: it only moves forward, so a client that wants to go back keeps its
+    own history of cursors.
+  - Every page still runs a `COUNT` for `total`. That is one extra count per request (accepted at this size
+    for an accurate `total`); a cursor-only design could drop it by returning `hasMore` alone.
 - **Read endpoints reject unknown filter values** (e.g. `status=refunded` -> `400`), because
   silently returning an empty list hides client typos. Alternative: accept any string and
   return `200` with `total: 0`.

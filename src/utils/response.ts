@@ -7,9 +7,21 @@ export type SuccessMeta = {
   hasMore: boolean;
 };
 
+// Cursor paging has no page number to jump to, so it reports no `offset` and
+// adds `nextCursor` instead. A distinct shape keeps a cursor page from ever
+// advertising a meaningless `offset`.
+export type CursorMeta = {
+  total: number;
+  limit: number;
+  hasMore: boolean;
+  nextCursor: string | null;
+};
+
+export type CollectionMeta = SuccessMeta | CursorMeta;
+
 export type SuccessEnvelope<T = unknown> = {
   data: T;
-  meta: SuccessMeta;
+  meta: CollectionMeta;
 };
 
 // Single-resource responses and /health carry data only: collection meta
@@ -27,7 +39,7 @@ export type ErrorEnvelope = {
   error: ErrorPayload;
 };
 
-export const ok = <T>(data: T, meta: SuccessMeta): SuccessEnvelope<T> => ({
+export const ok = <T>(data: T, meta: CollectionMeta): SuccessEnvelope<T> => ({
   data,
   meta,
 });
@@ -41,6 +53,17 @@ export const listMeta = (total: number, limit: number, offset: number, returned:
   limit,
   offset,
   hasMore: offset + returned < total,
+});
+
+// Cursor-page metadata. `hasMore` is decided by the caller (it fetches one row
+// past the page to detect it), and `nextCursor` is the encoded id of the last
+// row on this page, or null at the end of the table. Deliberately no `offset`:
+// a cursor only moves forward.
+export const cursorMeta = (total: number, limit: number, hasMore: boolean, nextCursor: string | null): CursorMeta => ({
+  total,
+  limit,
+  hasMore,
+  nextCursor,
 });
 
 export class ApiError extends Error {

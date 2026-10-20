@@ -126,3 +126,39 @@ export const parseFilterQuery = <T extends z.ZodTypeAny>(schema: T, req: Request
 // matches those characters literally; Postgres' default LIKE escape character
 // is the backslash, so `\%` / `\_` / `\\` are read as literals.
 export const escapeLikePattern = (value: string): string => value.replace(/[\\%_]/g, '\\$&');
+
+// Cursor pagination. The token is opaque by design: it is the URL-safe base64 of
+// the last row's id, and clients only ever echo back what `meta.nextCursor`
+// returned, so the encoding can change later without breaking a contract.
+export const encodeCursor = (id: string): string => Buffer.from(id, 'utf8').toString('base64url');
+
+// Strict decode: anything that does not decode to a UUID is a 400. This matters
+// because Prisma's `cursor` compiles to `... > (SELECT ... WHERE id = $cursor)`;
+// a token that is not a real id would make that subquery NULL and Prisma would
+// answer 200 with an empty page instead of reporting a bad request.
+export const decodeCursor = (cursor: string): string => {
+  const parsed = uuidSchema.safeParse(Buffer.from(cursor, 'base64url').toString('utf8'));
+  if (!parsed.success) {
+    throw new ApiError(400, 'BAD_QUERY_PARAMS', 'cursor: must be a cursor returned by this API');
+  }
+  return parsed.data;
+};
+
+// Reads the optional `cursor` query param and returns the decoded id (or
+// undefined when absent). `cursor` and `offset` are two different paging modes
+// and cannot be mixed; an empty `?cursor=` is rejected like every other empty
+// query value rather than silently ignored.
+export const parseCursorQuery = (req: Request): string | undefined => {
+  const raw = req.query.cursor;
+  if (raw === undefined) return undefined;
+
+  if (typeof raw !== 'string' || raw === '') {
+    throw new ApiError(400, 'BAD_QUERY_PARAMS', 'cursor: must be a non-empty string');
+  }
+
+  if (req.query.offset !== undefined) {
+    throw new ApiError(400, 'BAD_QUERY_PARAMS', 'cursor: cannot be combined with offset');
+  }
+
+  return decodeCursor(raw);
+};
