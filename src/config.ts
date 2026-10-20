@@ -37,6 +37,15 @@ export interface Config {
     windowMs: number;
     max: number;
   };
+  // Express.json body cap: anything larger is rejected with 413 before the
+  // body is buffered, so a huge payload can never reach a route handler.
+  jsonBodyLimit: string;
+  orders: {
+    // Order write limits (POST /api/v1/orders). Chosen as sane API guardrails,
+    // far above any legitimate cart (the seed tops out at 5 items per order).
+    maxItemsPerOrder: number;
+    maxQuantityPerItem: number;
+  };
 }
 
 export const config: Config = {
@@ -50,6 +59,11 @@ export const config: Config = {
   rateLimit: {
     windowMs: 60000,
     max: 100,
+  },
+  jsonBodyLimit: '100kb',
+  orders: {
+    maxItemsPerOrder: 50,
+    maxQuantityPerItem: 1000,
   },
 };
 

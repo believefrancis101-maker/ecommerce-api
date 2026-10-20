@@ -12,7 +12,6 @@ app.set('trust proxy', 1);
 
 app.use(helmet());
 app.use(cors());
-app.use(express.json());
 
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,
@@ -28,7 +27,13 @@ const limiter = rateLimit({
   },
 });
 
+// The limiter sits ABOVE express.json on purpose: malformed and oversized
+// requests are rejected by the body parser (400 / 413), and if the limiter ran
+// after it those cheap-to-reject-but-abuse-prone requests would bypass the
+// budget entirely. Here every request is counted and carries RateLimit headers
+// before the body is even parsed.
 app.use(limiter);
+app.use(express.json({ limit: config.jsonBodyLimit }));
 
 // Mount v1 routes under /api/v1
 import v1Router from './routes/v1';
