@@ -1,6 +1,14 @@
 ﻿# Stage 7 - ugly-input evidence
 
-Live `curl.exe` output captured against `npm run dev` at http://localhost:3000/api/v1 on 2026-10-20 10:15:17 +01:00.
+Live `curl.exe` output captured against `npm run dev` at http://localhost:3000/api/v1 on
+2026-10-20. Sections 1, 2, 4-7 and 11 were captured at 10:15-10:17 +01:00. Section 9 was
+re-captured at 10:57 +01:00 for the Stage 7b `name` / `slug` / `email` filters, and section 10
+(the LIKE-wildcard fix) was captured in the same run. Sections 3 and 8 were re-captured at
+11:13 +01:00 after the Stage 7c seed freeze (product ids, names and prices changed), so their
+`RateLimit-*` counters start a fresh sequence.
+
+This is a development snapshot taken against the local seeded database. The final evidence will
+be re-captured against the live URL after deployment.
 
 Notes:
 
@@ -163,12 +171,12 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 94
+RateLimit-Remaining: 99
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
 Content-Length: 95
 ETag: W/"5f-3BIJHtZIV2FFrzUPde9vtarWksg"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 10:13:49 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
@@ -188,12 +196,12 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 93
+RateLimit-Remaining: 98
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
 Content-Length: 95
 ETag: W/"5f-3BIJHtZIV2FFrzUPde9vtarWksg"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 10:13:49 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
@@ -213,16 +221,16 @@ HTTP/1.1 200 OK
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 92
+RateLimit-Remaining: 97
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
-Content-Length: 1887
-ETag: W/"75f-cb1uogmEk9sNvzQkuhNFcIf42ck"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Content-Length: 1707
+ETag: W/"6ab-RYMeC/IJDJnSRz8Pka+LK/bl8WI"
+Date: Tue, 20 Oct 2026 10:13:49 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
-{"data":[{"id":"e67d994d-2034-44a3-aa12-8edfaaa92867","name":"Elegant Cotton Ball","description":"Gerlach - Toy's most advanced Hat technology increases idealistic capabilities","priceMinor":705400,"currency":"NGN","stock":39,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"ce561907-8490-40d5-928c-391088abf85c","name":"Beauty & Personal Care","slug":"beauty-personal-care"}},{"id":"72a36381-00f2-4b11-987f-fc975f9930f5","name":"Elegant Silk Bacon","description":"The Customizable tangible parallelism Car offers reliable performance and gentle design","priceMinor":988200,"currency":"NGN","stock":57,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}},{"id":"4e4578c3-dcb1-409d-b931-bb2069bc91af","name":"Small Concrete Shirt","description":"The Marie Chicken is the latest in a series of knowledgeable products from Brekke - O'Conner","priceMinor":1025900,"currency":"NGN","stock":134,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"bada9154-3f6e-4ac8-b973-b40a2ffe50e6","name":"Furniture","slug":"furniture"}},{"id":"2d03c9cb-0e38-4a2f-a70e-9b8d0471b640","name":"Sleek Cotton Mouse","description":"Featuring Tungsten-enhanced technology, our Bacon offers unparalleled prudent performance","priceMinor":1079300,"currency":"NGN","stock":276,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"bada9154-3f6e-4ac8-b973-b40a2ffe50e6","name":"Furniture","slug":"furniture"}},{"id":"6c807476-e0ad-4f28-8072-d188fa432cb9","name":"Refined Metal Tuna","description":"Professional-grade Chips perfect for defensive training and recreational use","priceMinor":1453500,"currency":"NGN","stock":218,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}}],"meta":{"total":400,"limit":5,"offset":0,"hasMore":true}}
+{"data":[{"id":"6dc892dc-a7fe-4a59-8964-6964c815ec5f","name":"Everyday Granulated Sugar - 500g","description":"Durable granulated sugar for daily needs.","priceMinor":145400,"currency":"NGN","stock":77,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}},{"id":"6a4609c6-6132-478f-9198-8d30a5044926","name":"Everyday Conditioner - 250ml","description":"Everyday conditioner that does the job.","priceMinor":165600,"currency":"NGN","stock":293,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"ce561907-8490-40d5-928c-391088abf85c","name":"Beauty & Personal Care","slug":"beauty-personal-care"}},{"id":"237bf788-8800-411b-b3ee-ff482ced6c10","name":"Essential Tomato Paste","description":"Everyday tomato paste that does the job.","priceMinor":206900,"currency":"NGN","stock":299,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}},{"id":"c2da32ae-b594-4fb9-a695-06ea1e434987","name":"Classic Cat Litter","description":"Quality cat litter at a fair price.","priceMinor":246200,"currency":"NGN","stock":236,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"40ddff8c-fd37-42f9-83a9-51a8c8d88e62","name":"Pet Supplies","slug":"pet-supplies"}},{"id":"4231f47e-a9bd-4eae-b84e-8e06f3ffe9ad","name":"Essential Notebook","description":"This notebook offers good value for money.","priceMinor":259400,"currency":"NGN","stock":295,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"54d3f0f0-e8f1-48f8-9ab7-a9e04fe79437","name":"Books & Stationery","slug":"books-stationery"}}],"meta":{"total":400,"limit":5,"offset":0,"hasMore":true}}
 ```
 
 ## 4. Unknown `sort` and invalid `order` are rejected (400)
@@ -386,16 +394,16 @@ HTTP/1.1 200 OK
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 86
-RateLimit-Reset: 60
+RateLimit-Remaining: 96
+RateLimit-Reset: 59
 Content-Type: application/json; charset=utf-8
-Content-Length: 1887
-ETag: W/"75f-cb1uogmEk9sNvzQkuhNFcIf42ck"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Content-Length: 1707
+ETag: W/"6ab-RYMeC/IJDJnSRz8Pka+LK/bl8WI"
+Date: Tue, 20 Oct 2026 10:13:50 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
-{"data":[{"id":"e67d994d-2034-44a3-aa12-8edfaaa92867","name":"Elegant Cotton Ball","description":"Gerlach - Toy's most advanced Hat technology increases idealistic capabilities","priceMinor":705400,"currency":"NGN","stock":39,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"ce561907-8490-40d5-928c-391088abf85c","name":"Beauty & Personal Care","slug":"beauty-personal-care"}},{"id":"72a36381-00f2-4b11-987f-fc975f9930f5","name":"Elegant Silk Bacon","description":"The Customizable tangible parallelism Car offers reliable performance and gentle design","priceMinor":988200,"currency":"NGN","stock":57,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}},{"id":"4e4578c3-dcb1-409d-b931-bb2069bc91af","name":"Small Concrete Shirt","description":"The Marie Chicken is the latest in a series of knowledgeable products from Brekke - O'Conner","priceMinor":1025900,"currency":"NGN","stock":134,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"bada9154-3f6e-4ac8-b973-b40a2ffe50e6","name":"Furniture","slug":"furniture"}},{"id":"2d03c9cb-0e38-4a2f-a70e-9b8d0471b640","name":"Sleek Cotton Mouse","description":"Featuring Tungsten-enhanced technology, our Bacon offers unparalleled prudent performance","priceMinor":1079300,"currency":"NGN","stock":276,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"bada9154-3f6e-4ac8-b973-b40a2ffe50e6","name":"Furniture","slug":"furniture"}},{"id":"6c807476-e0ad-4f28-8072-d188fa432cb9","name":"Refined Metal Tuna","description":"Professional-grade Chips perfect for defensive training and recreational use","priceMinor":1453500,"currency":"NGN","stock":218,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}}],"meta":{"total":400,"limit":5,"offset":0,"hasMore":true}}
+{"data":[{"id":"6dc892dc-a7fe-4a59-8964-6964c815ec5f","name":"Everyday Granulated Sugar - 500g","description":"Durable granulated sugar for daily needs.","priceMinor":145400,"currency":"NGN","stock":77,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}},{"id":"6a4609c6-6132-478f-9198-8d30a5044926","name":"Everyday Conditioner - 250ml","description":"Everyday conditioner that does the job.","priceMinor":165600,"currency":"NGN","stock":293,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"ce561907-8490-40d5-928c-391088abf85c","name":"Beauty & Personal Care","slug":"beauty-personal-care"}},{"id":"237bf788-8800-411b-b3ee-ff482ced6c10","name":"Essential Tomato Paste","description":"Everyday tomato paste that does the job.","priceMinor":206900,"currency":"NGN","stock":299,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"72669a05-a8da-421a-809f-96a78f6fe311","name":"Groceries","slug":"groceries"}},{"id":"c2da32ae-b594-4fb9-a695-06ea1e434987","name":"Classic Cat Litter","description":"Quality cat litter at a fair price.","priceMinor":246200,"currency":"NGN","stock":236,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"40ddff8c-fd37-42f9-83a9-51a8c8d88e62","name":"Pet Supplies","slug":"pet-supplies"}},{"id":"4231f47e-a9bd-4eae-b84e-8e06f3ffe9ad","name":"Essential Notebook","description":"This notebook offers good value for money.","priceMinor":259400,"currency":"NGN","stock":295,"createdAt":"2026-01-01T00:00:00.000Z","category":{"id":"54d3f0f0-e8f1-48f8-9ab7-a9e04fe79437","name":"Books & Stationery","slug":"books-stationery"}}],"meta":{"total":400,"limit":5,"offset":0,"hasMore":true}}
 ```
 
 ### maxPrice=0 -> 200 with 0 results (a real <= 0 bound)
@@ -411,12 +419,12 @@ HTTP/1.1 200 OK
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 85
-RateLimit-Reset: 60
+RateLimit-Remaining: 95
+RateLimit-Reset: 59
 Content-Type: application/json; charset=utf-8
 Content-Length: 68
 ETag: W/"44-QERZ5AoXw2TcBFLEAc+s2N2PfRw"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 10:13:50 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
@@ -425,11 +433,11 @@ Keep-Alive: timeout=5
 
 ## 9. An empty filter value is rejected, not silently ignored
 
-### q= (categories) -> 400
+### name= (categories) -> 400
 
 Command:
 ```console
-curl.exe -i "http://localhost:3000/api/v1/categories?q="
+curl.exe -i "http://localhost:3000/api/v1/categories?name="
 ```
 
 Response (helmet security headers omitted):
@@ -438,23 +446,23 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 84
+RateLimit-Remaining: 99
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
-Content-Length: 81
-ETag: W/"51-pmjRxY+YUGvqu+rs7xWRbNBSUgs"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Content-Length: 87
+ETag: W/"57-rKAJLW993SgwQA4JEKGxFrEL6ME"
+Date: Tue, 20 Oct 2026 09:57:02 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
-{"error":{"code":"BAD_QUERY_PARAMS","message":"q: q must be a non-empty string"}}
+{"error":{"code":"BAD_QUERY_PARAMS","message":"name: name must be a non-empty string"}}
 ```
 
-### q= (customers) -> 400
+### slug= (categories) -> 400
 
 Command:
 ```console
-curl.exe -i "http://localhost:3000/api/v1/customers?q="
+curl.exe -i "http://localhost:3000/api/v1/categories?slug="
 ```
 
 Response (helmet security headers omitted):
@@ -463,16 +471,66 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 83
+RateLimit-Remaining: 98
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
-Content-Length: 81
-ETag: W/"51-pmjRxY+YUGvqu+rs7xWRbNBSUgs"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Content-Length: 87
+ETag: W/"57-3+gjjlX48Z0kk0NnsaE0Wn4bMxY"
+Date: Tue, 20 Oct 2026 09:57:02 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
-{"error":{"code":"BAD_QUERY_PARAMS","message":"q: q must be a non-empty string"}}
+{"error":{"code":"BAD_QUERY_PARAMS","message":"slug: slug must be a non-empty string"}}
+```
+
+### name= (customers) -> 400
+
+Command:
+```console
+curl.exe -i "http://localhost:3000/api/v1/customers?name="
+```
+
+Response (helmet security headers omitted):
+```http
+HTTP/1.1 400 Bad Request
+Access-Control-Allow-Origin: *
+RateLimit-Policy: 100;w=60
+RateLimit-Limit: 100
+RateLimit-Remaining: 97
+RateLimit-Reset: 60
+Content-Type: application/json; charset=utf-8
+Content-Length: 87
+ETag: W/"57-rKAJLW993SgwQA4JEKGxFrEL6ME"
+Date: Tue, 20 Oct 2026 09:57:02 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":{"code":"BAD_QUERY_PARAMS","message":"name: name must be a non-empty string"}}
+```
+
+### email= (customers) -> 400
+
+Command:
+```console
+curl.exe -i "http://localhost:3000/api/v1/customers?email="
+```
+
+Response (helmet security headers omitted):
+```http
+HTTP/1.1 400 Bad Request
+Access-Control-Allow-Origin: *
+RateLimit-Policy: 100;w=60
+RateLimit-Limit: 100
+RateLimit-Remaining: 96
+RateLimit-Reset: 60
+Content-Type: application/json; charset=utf-8
+Content-Length: 89
+ETag: W/"59-O6EI5bkyl/jsqJ3YwSpFRS+P86c"
+Date: Tue, 20 Oct 2026 09:57:03 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":{"code":"BAD_QUERY_PARAMS","message":"email: email must be a non-empty string"}}
 ```
 
 ### category= (products) -> 400
@@ -488,12 +546,12 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 82
+RateLimit-Remaining: 95
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
 Content-Length: 83
 ETag: W/"53-t2DiGxTWRf3ySYMoL9ck/v90k2I"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 09:57:03 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
@@ -513,12 +571,12 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 81
+RateLimit-Remaining: 94
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
 Content-Length: 107
 ETag: W/"6b-dZZBrwbqdji65Lk0FJbAPyfC96g"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 09:57:03 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
@@ -538,12 +596,12 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 80
+RateLimit-Remaining: 93
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
 Content-Length: 129
 ETag: W/"81-EPDK85y9hyn2tPZOVEDCtXuFKng"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 09:57:03 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
@@ -563,12 +621,12 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 79
+RateLimit-Remaining: 92
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
 Content-Length: 144
 ETag: W/"90-wN/OxAzFxoHs+/UuHS7KW8llEQ8"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 09:57:03 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
@@ -588,19 +646,77 @@ HTTP/1.1 400 Bad Request
 Access-Control-Allow-Origin: *
 RateLimit-Policy: 100;w=60
 RateLimit-Limit: 100
-RateLimit-Remaining: 78
+RateLimit-Remaining: 91
 RateLimit-Reset: 60
 Content-Type: application/json; charset=utf-8
 Content-Length: 93
 ETag: W/"5d-n218v6ushb9tz5ytVRdGDfbVHyQ"
-Date: Tue, 20 Oct 2026 09:15:17 GMT
+Date: Tue, 20 Oct 2026 09:57:03 GMT
 Connection: keep-alive
 Keep-Alive: timeout=5
 
 {"error":{"code":"BAD_QUERY_PARAMS","message":"customerId: customerId must be a valid UUID"}}
 ```
 
-## 10. Exceeding the rate limit returns 429 with `Retry-After`
+## 10. LIKE wildcards in text filters are matched literally
+
+Prisma's `contains` compiles to SQL `ILIKE '%value%'` and does not escape the user's LIKE
+metacharacters, so an unescaped `%` matched every row and `_` matched any single character.
+`escapeLikePattern` in `src/middleware/validation.ts` escapes `\`, `%` and `_`; the filters now
+match those characters literally, so both of the probes below return 0 rows (no category name or
+customer name contains them).
+
+### name=%25 (categories, a literal `%`) -> 200, 0 rows
+
+Command:
+```console
+curl.exe -i "http://localhost:3000/api/v1/categories?name=%25"
+```
+
+Response (helmet security headers omitted):
+```http
+HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+RateLimit-Policy: 100;w=60
+RateLimit-Limit: 100
+RateLimit-Remaining: 90
+RateLimit-Reset: 60
+Content-Type: application/json; charset=utf-8
+Content-Length: 68
+ETag: W/"44-QERZ5AoXw2TcBFLEAc+s2N2PfRw"
+Date: Tue, 20 Oct 2026 09:57:03 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"data":[],"meta":{"total":0,"limit":20,"offset":0,"hasMore":false}}
+```
+
+### name=_ (customers, a literal `_`) -> 200, 0 rows
+
+Command:
+```console
+curl.exe -i "http://localhost:3000/api/v1/customers?name=_"
+```
+
+Response (helmet security headers omitted):
+```http
+HTTP/1.1 200 OK
+Access-Control-Allow-Origin: *
+RateLimit-Policy: 100;w=60
+RateLimit-Limit: 100
+RateLimit-Remaining: 89
+RateLimit-Reset: 60
+Content-Type: application/json; charset=utf-8
+Content-Length: 68
+ETag: W/"44-QERZ5AoXw2TcBFLEAc+s2N2PfRw"
+Date: Tue, 20 Oct 2026 09:57:03 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"data":[],"meta":{"total":0,"limit":20,"offset":0,"hasMore":false}}
+```
+
+## 11. Exceeding the rate limit returns 429 with `Retry-After`
 
 The limiter allows 100 requests / 60s per IP. After letting the window reset, 105 requests
 were sent to `/api/v1/health` in a loop:
@@ -656,6 +772,6 @@ SELECT (SELECT count(*) FROM "Product") AS products,
 ```
  products | orders | order_items
 ----------+--------+-------------
-      400 |    500 |        1526
+      400 |    500 |        1513
 ```
 
