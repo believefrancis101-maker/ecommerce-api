@@ -85,6 +85,7 @@ npm run seed
 | `npm test` | `vitest run` (builds a throwaway test database first) |
 | `npm run seed` | Seed the database |
 | `npm run typecheck` | `tsc --noEmit` over `src/` **and** `prisma/seed.ts` |
+| `postinstall` | Regenerate the Prisma client (`prisma generate`) after `npm install` |
 
 `typecheck` uses a separate `tsconfig.typecheck.json` (it extends the build config and turns
 emit off), so `npm run build` keeps its `dist/` layout unchanged.
