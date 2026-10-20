@@ -231,8 +231,63 @@ async function insertInBatches<T>(rows: T[], insert: (batch: T[]) => Promise<unk
   }
 }
 
+// Guard to ensure non-local databases cannot be seeded accidentally.
+function assertSafeDatabaseTarget(): void {
+  const rawUrl = process.env.DATABASE_URL;
+
+  // 1. Fail closed on missing, empty, or undefined DATABASE_URL
+  if (!rawUrl || typeof rawUrl !== 'string' || rawUrl.trim() === '') {
+    console.error('[Seed] ABORTED: DATABASE_URL environment variable is missing or empty.');
+    process.exit(1);
+  }
+
+  // 2. Parse URL and fail closed on malformed or non-postgres URL
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    console.error('[Seed] ABORTED: DATABASE_URL is malformed or not a valid URL.');
+    process.exit(1);
+  }
+
+  if (parsedUrl.protocol !== 'postgres:' && parsedUrl.protocol !== 'postgresql:') {
+    console.error(
+      `[Seed] ABORTED: DATABASE_URL has invalid protocol "${parsedUrl.protocol}". Expected "postgresql:" or "postgres:".`
+    );
+    process.exit(1);
+  }
+
+  const hostname = parsedUrl.hostname;
+  if (!hostname) {
+    console.error('[Seed] ABORTED: DATABASE_URL does not contain a valid hostname.');
+    process.exit(1);
+  }
+
+  // 3. Strict local check: ONLY localhost and 127.0.0.1 are considered local
+  const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+
+  if (!isLocal) {
+    const maskedHost =
+      hostname.length > 6
+        ? `${hostname.slice(0, 2)}***${hostname.slice(-3)}`
+        : '***';
+
+    if (process.env.CONFIRM_PRODUCTION_SEED !== 'yes') {
+      console.error(
+        `[Seed] ABORTED: Refusing to seed non-local database host "${maskedHost}".\n` +
+          `To seed this database, set CONFIRM_PRODUCTION_SEED=yes explicitly.`
+      );
+      process.exit(1);
+    }
+
+    console.log(`[Seed] CONFIRM_PRODUCTION_SEED=yes detected. Seeding non-local database host: "${maskedHost}"`);
+  }
+}
+
 // Not exported either: `npm run seed` is the only caller.
 async function seed() {
+  assertSafeDatabaseTarget();
+
   console.log(`[Seed] Deterministic seed (faker.seed(${FIXED_SEED}))`);
   faker.seed(FIXED_SEED);
 
