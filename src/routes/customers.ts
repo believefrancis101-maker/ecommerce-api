@@ -1,10 +1,11 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma } from '../db';
 import { asyncHandler } from '../utils/async';
 import { ApiError, listMeta, ok, okItem } from '../utils/response';
 import {
   createPaginationQuerySchema,
-  optionalQueryString,
+  parseFilterQuery,
   parsePaginationQuery,
   uuidParam,
   validateUuidParam,
@@ -16,6 +17,13 @@ const SORT_COLUMNS = { name: 'name', createdAt: 'createdAt' } as const;
 
 const querySchema = createPaginationQuerySchema(Object.keys(SORT_COLUMNS));
 
+// Two explicit filters replace the old free-text `q`; both are `contains` and
+// case-insensitive. When both are supplied they are combined with AND.
+const filterSchema = z.object({
+  name: z.string().min(1, 'name must be a non-empty string').optional(),
+  email: z.string().min(1, 'email must be a non-empty string').optional(),
+});
+
 const selectCustomer = { id: true, name: true, email: true, createdAt: true } as const;
 
 router.get(
@@ -25,15 +33,11 @@ router.get(
     const field = (sort?.field ?? 'name') as keyof typeof SORT_COLUMNS;
     const direction = sort?.direction ?? 'asc';
 
-    const q = optionalQueryString(req, 'q');
-    const where = q
-      ? {
-          OR: [
-            { name: { contains: q, mode: 'insensitive' as const } },
-            { email: { contains: q, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
+    const filters = parseFilterQuery(filterSchema, req);
+    const where = {
+      ...(filters.name !== undefined ? { name: { contains: filters.name, mode: 'insensitive' as const } } : {}),
+      ...(filters.email !== undefined ? { email: { contains: filters.email, mode: 'insensitive' as const } } : {}),
+    };
 
     const [total, rows] = await Promise.all([
       prisma.customer.count({ where }),

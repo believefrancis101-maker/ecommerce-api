@@ -7,6 +7,7 @@ import { asyncHandler } from '../utils/async';
 import { ApiError, listMeta, ok, okItem } from '../utils/response';
 import {
   createPaginationQuerySchema,
+  parseFilterQuery,
   parsePaginationQuery,
   uuidParam,
   validateUuidParam,
@@ -24,15 +25,6 @@ const filterSchema = z.object({
   status: z.enum(['pending', 'paid', 'shipped', 'cancelled']).optional(),
   customerId: z.string().uuid({ message: 'customerId must be a valid UUID' }).optional(),
 });
-
-const parseFilters = (req: Parameters<typeof parsePaginationQuery>[1]) => {
-  const parsed = filterSchema.safeParse(req.query);
-  if (!parsed.success) {
-    const first = parsed.error.issues[0];
-    throw new ApiError(400, 'BAD_QUERY_PARAMS', `${String(first.path[0])}: ${first.message}`);
-  }
-  return parsed.data;
-};
 
 const allowedStatuses = ['pending', 'paid', 'shipped', 'cancelled'] as const;
 
@@ -97,7 +89,7 @@ router.get(
   '/',
   asyncHandler(async (req, res) => {
     const { limit, offset, sort } = parsePaginationQuery(querySchema, req);
-    const filters = parseFilters(req);
+    const filters = parseFilterQuery(filterSchema, req);
     const field = (sort?.field ?? 'createdAt') as keyof typeof SORT_COLUMNS;
     const direction = sort?.direction ?? 'desc';
 

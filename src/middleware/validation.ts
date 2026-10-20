@@ -105,14 +105,17 @@ export const parsePaginationQuery = <T extends z.ZodTypeAny>(schema: T, req: Req
   return result.data as z.infer<T>;
 };
 
-// Optional, non-empty string filter (e.g. `q`). A present-but-empty value
-// (`?q=`) is rejected instead of being silently dropped, so an empty filter can
-// never "match everything" by accident.
-export const optionalQueryString = (req: Request, key: string): string | undefined => {
-  const raw = req.query[key];
-  if (raw === undefined) return undefined;
-  if (typeof raw !== 'string' || raw.length === 0) {
-    throw new ApiError(400, 'BAD_QUERY_PARAMS', `${key}: ${key} must be a non-empty string`);
+// Parses a filter schema against the query string and turns the first failure
+// into 400 BAD_QUERY_PARAMS, naming the offending param. Shared by every list
+// route so filter errors look identical everywhere. A present-but-empty value
+// (`?name=`) fails the schema's `.min(1)` and is rejected instead of being
+// silently dropped, so an empty filter can never "match everything" by accident.
+export const parseFilterQuery = <T extends z.ZodTypeAny>(schema: T, req: Request): z.infer<T> => {
+  const result = schema.safeParse(req.query);
+  if (!result.success) {
+    const first = result.error.issues[0];
+    const field = first?.path.length ? `${String(first.path[0])}: ` : '';
+    throw new ApiError(400, 'BAD_QUERY_PARAMS', `${field}${first?.message ?? 'Invalid query parameters'}`);
   }
-  return raw;
+  return result.data as z.infer<T>;
 };

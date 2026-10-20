@@ -43,11 +43,34 @@ describe('GET /api/v1/categories', () => {
     expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
   });
 
-  it('filters by q on name and slug, case-insensitively', async () => {
-    const res = await request(app).get('/api/v1/categories?q=ELECTRONICS');
+  it('filters by name (contains, case-insensitive)', async () => {
+    const res = await request(app).get('/api/v1/categories?name=ELECTRONICS');
     expect(res.status).toBe(200);
     expect(res.body.meta.total).toBe(1);
     expect(res.body.data[0].slug).toBe('electronics');
+  });
+
+  it('filters by slug (exact match, lowercased)', async () => {
+    const exact = await request(app).get('/api/v1/categories?slug=electronics');
+    expect(exact.status).toBe(200);
+    expect(exact.body.meta.total).toBe(1);
+    expect(exact.body.data[0].slug).toBe('electronics');
+
+    // Exact, not contains: a prefix of the slug matches nothing.
+    const prefix = await request(app).get('/api/v1/categories?slug=electro');
+    expect(prefix.body.meta.total).toBe(0);
+
+    // The value is lowercased before matching, so an uppercase value still hits.
+    const upper = await request(app).get('/api/v1/categories?slug=ELECTRONICS');
+    expect(upper.body.meta.total).toBe(1);
+  });
+
+  it('combines name and slug with AND', async () => {
+    const both = await request(app).get('/api/v1/categories?name=electronics&slug=electronics');
+    expect(both.body.meta.total).toBe(1);
+
+    const mismatch = await request(app).get('/api/v1/categories?name=electronics&slug=books');
+    expect(mismatch.body.meta.total).toBe(0);
   });
 
   it('sorts by a whitelisted field and order', async () => {
@@ -115,6 +138,42 @@ describe('GET /api/v1/categories/:id/products', () => {
     expect(res.status).toBe(200);
     expect(res.body.meta).toMatchObject({ total: 20, limit: 5, offset: 0, hasMore: true });
     expect(res.body.data).toHaveLength(5);
+  });
+
+  it('applies the shared minPrice/maxPrice filters', async () => {
+    const category = await prisma.category.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const min = 5_000_000;
+    const max = 10_000_000;
+    const expected = await prisma.product.count({
+      where: { categoryId: category.id, priceMinor: { gte: min, lte: max } },
+    });
+    const res = await request(app).get(
+      `/api/v1/categories/${category.id}/products?minPrice=${min}&maxPrice=${max}&limit=100`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.meta.total).toBe(expected);
+    expect(res.body.data.every((p: { priceMinor: number }) => p.priceMinor >= min && p.priceMinor <= max)).toBe(
+      true
+    );
+  });
+
+  it('applies the shared inStock filter', async () => {
+    const category = await prisma.category.findFirstOrThrow({ orderBy: { id: 'asc' } });
+
+    const inStock = await request(app).get(`/api/v1/categories/${category.id}/products?inStock=true&limit=100`);
+    expect(inStock.status).toBe(200);
+    expect(inStock.body.data.every((p: { stock: number }) => p.stock > 0)).toBe(true);
+
+    const outOfStock = await request(app).get(`/api/v1/categories/${category.id}/products?inStock=false`);
+    expect(outOfStock.status).toBe(200);
+    expect(outOfStock.body.meta.total).toBe(0);
+  });
+
+  it('rejects minPrice greater than maxPrice with 400', async () => {
+    const category = await prisma.category.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const res = await request(app).get(`/api/v1/categories/${category.id}/products?minPrice=200&maxPrice=100`);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
   });
 
   it('returns 404 when the parent category does not exist', async () => {

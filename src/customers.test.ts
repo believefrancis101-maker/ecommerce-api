@@ -28,9 +28,30 @@ describe('GET /api/v1/customers', () => {
     expect(res.body.meta.limit).toBe(100);
   });
 
-  it('filters by q on name or email, case-insensitively', async () => {
+  it('filters by name (contains, case-insensitive)', async () => {
     const pick = await prisma.customer.findFirstOrThrow({ orderBy: { id: 'asc' } });
-    const res = await request(app).get(`/api/v1/customers?q=${encodeURIComponent(pick.email)}`);
+    const fragment = pick.name.slice(0, 5).toUpperCase();
+    const res = await request(app).get(`/api/v1/customers?name=${encodeURIComponent(fragment)}&limit=100`);
+    expect(res.status).toBe(200);
+    expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.some((c: { id: string }) => c.id === pick.id)).toBe(true);
+  });
+
+  it('filters by email (contains, case-insensitive)', async () => {
+    const pick = await prisma.customer.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const res = await request(app).get(
+      `/api/v1/customers?email=${encodeURIComponent(pick.email.toUpperCase())}&limit=100`
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
+    expect(res.body.data.some((c: { id: string }) => c.id === pick.id)).toBe(true);
+  });
+
+  it('combines name and email with AND', async () => {
+    const pick = await prisma.customer.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const res = await request(app).get(
+      `/api/v1/customers?name=${encodeURIComponent(pick.name)}&email=${encodeURIComponent(pick.email)}&limit=100`
+    );
     expect(res.status).toBe(200);
     expect(res.body.meta.total).toBeGreaterThanOrEqual(1);
     expect(res.body.data.some((c: { id: string }) => c.id === pick.id)).toBe(true);

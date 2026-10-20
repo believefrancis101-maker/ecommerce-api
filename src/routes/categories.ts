@@ -1,14 +1,16 @@
 import { Router } from 'express';
+import { z } from 'zod';
 import { prisma } from '../db';
 import { asyncHandler } from '../utils/async';
 import { ApiError, listMeta, ok, okItem } from '../utils/response';
 import {
   createPaginationQuerySchema,
-  optionalQueryString,
+  parseFilterQuery,
   parsePaginationQuery,
   uuidParam,
   validateUuidParam,
 } from '../middleware/validation';
+import { enforcePriceRange, productFilterSchema, productFilterWhere } from '../middleware/product-filters';
 
 const router = Router();
 
@@ -20,6 +22,18 @@ const PRODUCT_SORT_COLUMNS = { price: 'priceMinor', name: 'name', createdAt: 'cr
 const categoryQuerySchema = createPaginationQuerySchema(Object.keys(CATEGORY_SORT_COLUMNS));
 const productQuerySchema = createPaginationQuerySchema(Object.keys(PRODUCT_SORT_COLUMNS));
 
+// Two explicit filters replace the old free-text `q`: `name` (contains,
+// case-insensitive) and `slug` (exact match; the value is lowercased first, so
+// `slug=ELECTRONICS` matches the stored `electronics`).
+const categoryFilterSchema = z.object({
+  name: z.string().min(1, 'name must be a non-empty string').optional(),
+  slug: z.string().min(1, 'slug must be a non-empty string').toLowerCase().optional(),
+});
+
+// The nested product listing accepts exactly the same price/stock filters as
+// GET /products, via the shared schema plus the shared minPrice <= maxPrice rule.
+const nestedProductFilterSchema = productFilterSchema.superRefine(enforcePriceRange);
+
 const selectCategory = { id: true, name: true, slug: true, createdAt: true } as const;
 
 router.get(
@@ -29,15 +43,11 @@ router.get(
     const field = (sort?.field ?? 'name') as keyof typeof CATEGORY_SORT_COLUMNS;
     const direction = sort?.direction ?? 'asc';
 
-    const q = optionalQueryString(req, 'q');
-    const where = q
-      ? {
-          OR: [
-            { name: { contains: q, mode: 'insensitive' as const } },
-            { slug: { contains: q, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
+    const filters = parseFilterQuery(categoryFilterSchema, req);
+    const where = {
+      ...(filters.name !== undefined ? { name: { contains: filters.name, mode: 'insensitive' as const } } : {}),
+      ...(filters.slug !== undefined ? { slug: filters.slug } : {}),
+    };
 
     const [total, rows] = await Promise.all([
       prisma.category.count({ where }),
@@ -72,11 +82,12 @@ router.get(
   validateUuidParam('id'),
   asyncHandler(async (req, res) => {
     const { limit, offset, sort } = parsePaginationQuery(productQuerySchema, req);
+    const filters = parseFilterQuery(nestedProductFilterSchema, req);
 
     const category = await prisma.category.findUnique({ where: { id: uuidParam(req, 'id') }, select: { id: true } });
     if (!category) throw new ApiError(404, 'NOT_FOUND', 'Category not found');
 
-    const where = { categoryId: category.id };
+    const where = { categoryId: category.id, ...productFilterWhere(filters) };
     const field = (sort?.field ?? 'createdAt') as keyof typeof PRODUCT_SORT_COLUMNS;
     const direction = sort?.direction ?? 'desc';
 

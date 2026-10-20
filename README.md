@@ -127,12 +127,12 @@ Every error uses that envelope. The complete set of `code` values the API can re
 
 | Method & path | Filters | `sort` whitelist |
 | --- | --- | --- |
-| `GET /categories` | `q` (name, slug) | `name`, `createdAt` |
+| `GET /categories` | `name` (contains, case-insensitive), `slug` (exact, lowercase) | `name`, `createdAt` |
 | `GET /categories/:id` | - | - |
-| `GET /categories/:id/products` | - | `price`, `name`, `createdAt` |
+| `GET /categories/:id/products` | `minPrice`, `maxPrice`, `inStock` | `price`, `name`, `createdAt` |
 | `GET /products` | `category` (slug), `minPrice`, `maxPrice`, `inStock` | `price`, `name`, `createdAt` |
 | `GET /products/:id` | - | - |
-| `GET /customers` | `q` (name, email) | `name`, `createdAt` |
+| `GET /customers` | `name` (contains, case-insensitive), `email` (contains, case-insensitive) | `name`, `createdAt` |
 | `GET /customers/:id` | - | - |
 | `GET /orders` | `status`, `customerId` | `createdAt` |
 | `GET /orders/:id` | - | - |
@@ -144,10 +144,19 @@ Every list accepts `limit` (default 20, max 100), `offset` (default 0), `sort` a
   and an empty `limit` (`?limit=`) all return `400 BAD_QUERY_PARAMS`. An absent `limit` uses the default (`20`).
   This rule lives in the shared pagination schema, so it applies to every list endpoint.
 - `offset=0` is valid (any non-negative integer is); a negative or non-numeric `offset` returns `400 BAD_QUERY_PARAMS`.
-- **An empty filter value is rejected, never silently ignored** - `?q=` on `/categories` or `/customers`,
-  `?category=` / `?minPrice=` / `?maxPrice=` / `?inStock=` on `/products`, and `?status=` / `?customerId=` on
+- **An empty filter value is rejected, never silently ignored** - `?name=` / `?slug=` on `/categories`,
+  `?name=` / `?email=` on `/customers`, `?category=` / `?minPrice=` / `?maxPrice=` / `?inStock=` on `/products`,
+  `?minPrice=` / `?maxPrice=` / `?inStock=` on `/categories/:id/products`, and `?status=` / `?customerId=` on
   `/orders` all return `400 BAD_QUERY_PARAMS` rather than "matching everything". The numeric filters treat `0` as a
   real bound (`minPrice=0` is `>= 0`, `maxPrice=0` is `<= 0`), so a value of `0` is never dropped.
+- **Multiple filters on one request combine with `AND`** - e.g. `/customers?name=ann&email=gmail.com` keeps only rows
+  that satisfy both, and `/categories?name=electronics&slug=electronics` only the one category matching both.
+- `GET /categories` `slug` is an **exact** match (the value is lowercased first, so `slug=ELECTRONICS` matches the
+  stored `electronics`; a prefix like `slug=electro` matches nothing), while `name` is a case-insensitive substring.
+- `GET /customers` `name` and `email` are both case-insensitive substring (`contains`) matches.
+- `GET /categories/:id/products` accepts the **same** `minPrice` / `maxPrice` / `inStock` filters as `GET /products`
+  - they come from one shared schema and one shared `where` builder, so a fix to one endpoint can never drift from
+  the other. `minPrice > maxPrice` is rejected with `400` on both.
 
 `sort` outside a resource's whitelist, `minPrice` greater than `maxPrice`, an unknown `status` and a malformed
 `customerId` all return `400 BAD_QUERY_PARAMS`. A malformed or unknown `:id` returns `404 NOT_FOUND` (never `500`).

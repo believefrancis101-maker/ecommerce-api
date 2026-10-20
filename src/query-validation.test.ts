@@ -77,21 +77,43 @@ describe('Query validation: zero is a real numeric filter', () => {
     expect(res.status).toBe(200);
     expect(res.body.meta.total).toBe(0);
   });
+
+  it('applies maxPrice=0 on /categories/:id/products as a real bound (shared schema)', async () => {
+    const category = await prisma.category.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const res = await request(app).get(`/api/v1/categories/${category.id}/products?maxPrice=0`);
+    expect(res.status).toBe(200);
+    expect(res.body.meta.total).toBe(0);
+    expect(res.body.data).toHaveLength(0);
+  });
 });
 
 describe('Query validation: an empty filter value is rejected, not ignored', () => {
-  it('rejects an empty q on /categories', async () => {
-    const res = await request(app).get('/api/v1/categories?q=');
+  it('rejects an empty name on /categories', async () => {
+    const res = await request(app).get('/api/v1/categories?name=');
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
-    expect(res.body.error.message).toContain('q');
+    expect(res.body.error.message).toContain('name');
   });
 
-  it('rejects an empty q on /customers', async () => {
-    const res = await request(app).get('/api/v1/customers?q=');
+  it('rejects an empty slug on /categories', async () => {
+    const res = await request(app).get('/api/v1/categories?slug=');
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
-    expect(res.body.error.message).toContain('q');
+    expect(res.body.error.message).toContain('slug');
+  });
+
+  it('rejects an empty name on /customers', async () => {
+    const res = await request(app).get('/api/v1/customers?name=');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
+    expect(res.body.error.message).toContain('name');
+  });
+
+  it('rejects an empty email on /customers', async () => {
+    const res = await request(app).get('/api/v1/customers?email=');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
+    expect(res.body.error.message).toContain('email');
   });
 
   it('rejects an empty category slug on /products', async () => {
@@ -117,6 +139,22 @@ describe('Query validation: an empty filter value is rejected, not ignored', () 
 
   it('rejects an empty inStock on /products', async () => {
     const res = await request(app).get('/api/v1/products?inStock=');
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
+    expect(res.body.error.message).toContain('inStock');
+  });
+
+  it('rejects an empty minPrice on /categories/:id/products', async () => {
+    const category = await prisma.category.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const res = await request(app).get(`/api/v1/categories/${category.id}/products?minPrice=`);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
+    expect(res.body.error.message).toContain('minPrice');
+  });
+
+  it('rejects an empty inStock on /categories/:id/products', async () => {
+    const category = await prisma.category.findFirstOrThrow({ orderBy: { id: 'asc' } });
+    const res = await request(app).get(`/api/v1/categories/${category.id}/products?inStock=`);
     expect(res.status).toBe(400);
     expect(res.body.error.code).toBe('BAD_QUERY_PARAMS');
     expect(res.body.error.message).toContain('inStock');
