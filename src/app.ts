@@ -11,7 +11,55 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(helmet());
-app.use(cors());
+const defaultLocalOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
+const configuredOrigins = config.corsOrigin
+  ? config.corsOrigin.split(',').map((s) => s.trim()).filter(Boolean)
+  : [];
+
+const isAllowedVercelOrigin = (origin: string): boolean => {
+  try {
+    const url = new URL(origin);
+    return url.hostname.endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
+};
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (e.g. curl, mobile apps, server-to-server)
+      if (!origin) return callback(null, true);
+
+      // Check explicitly configured origins
+      if (configuredOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow deployed Vercel frontend (production and preview deployments)
+      if (isAllowedVercelOrigin(origin)) {
+        return callback(null, true);
+      }
+
+      // Allow local development origins in non-production environments
+      if (config.nodeEnv !== 'production') {
+        if (defaultLocalOrigins.includes(origin) || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+          return callback(null, true);
+        }
+      }
+
+      return callback(null, false);
+    },
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
 
 const limiter = rateLimit({
   windowMs: config.rateLimit.windowMs,

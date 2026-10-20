@@ -14,6 +14,7 @@ const envSchema = z.object({
     }),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  CORS_ORIGIN: z.string().optional(),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -29,6 +30,7 @@ export interface Config {
   port: number;
   databaseUrl: string;
   nodeEnv: 'development' | 'production' | 'test';
+  corsOrigin?: string;
   pagination: {
     defaultLimit: number;
     maxLimit: number;
@@ -52,6 +54,7 @@ export const config: Config = {
   port: parsedEnv.data.PORT,
   databaseUrl: parsedEnv.data.DATABASE_URL,
   nodeEnv: parsedEnv.data.NODE_ENV,
+  corsOrigin: parsedEnv.data.CORS_ORIGIN,
   pagination: {
     defaultLimit: 20,
     maxLimit: 100,
