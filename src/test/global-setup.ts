@@ -32,7 +32,7 @@ export default function globalSetup() {
         probe.orderItem.count(),
       ]);
       console.log(
-        `[test] Row counts after the whole suite: products=${products}, orders=${orders}, orderItems=${orderItems} (seeded baseline: products=400, orders=500, orderItems=1526)`
+        `[test] Row counts after the whole suite: products=${products}, orders=${orders}, orderItems=${orderItems} (seeded baseline: products=400, orders=500, orderItems=1513)`
       );
       await probe.$disconnect();
     } catch (error) {

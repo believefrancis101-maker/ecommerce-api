@@ -7,7 +7,7 @@ import { config } from './config';
 const MISSING_ID = '00000000-0000-4000-8000-000000000000';
 
 // Every order this file creates is tracked so afterEach can delete it. The
-// shared test database must be back at the seeded 500 orders / 1526 items by
+// shared test database must be back at the seeded 500 orders / 1513 items by
 // the end of each test, or the count-based assertions in orders.test.ts fail.
 const createdOrderIds: string[] = [];
 
@@ -332,7 +332,7 @@ describe('POST /api/v1/orders', () => {
       expect(listed).toBeDefined();
       expect(listed.totalMinor).toBe(4_000_000_000);
     } finally {
-      // Clean up so counts return to 400 products / 500 orders / 1526 items.
+      // Clean up so counts return to 400 products / 500 orders / 1513 items.
       // Items first: OrderItem.productId is Restrict, so the product cannot go
       // until nothing references it.
       if (orderId) {
