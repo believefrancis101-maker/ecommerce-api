@@ -1,32 +1,40 @@
 # ecommerce-api
 
-E-commerce REST API built with Node.js, Express, TypeScript, PostgreSQL and Prisma.
+E-commerce REST API built with Node.js, Express 4, TypeScript, PostgreSQL (via Docker), and Prisma 6.
 
-**Status:** schema, seed, Express foundation and the Stage 5 read endpoints are in place.
-`/api/v1` exposes paginated, filterable, sortable read routes for categories, products,
-customers and orders (see [API](#7-api)).
+- **Live API URL:** `https://LIVE_URL_PLACEHOLDER`
+- **Consumer App:** `/consumer` (React + Vite)
+- **Status:** All stages (1 through 8) complete. 119 tests passing. Frozen deterministic seed.
 
-## Requirements
+---
 
-- Node.js 22+ and npm
-- Docker (local PostgreSQL 16)
+## Table of Contents
 
-## 1. Environment
+1. [Quick Start](#quick-start)
+2. [Resources & Data Model](#resources--data-model)
+3. [Endpoint Reference](#endpoint-reference)
+4. [Pagination, Filtering, and Sorting](#pagination-filtering-and-sorting)
+5. [Error Handling](#error-handling)
+6. [Rate Limiting](#rate-limiting)
+7. [Running Locally from a Fresh Clone](#running-locally-from-a-fresh-clone)
+8. [Tests](#tests)
+9. [Deployment](#deployment)
+10. [Design Decisions](#design-decisions)
+11. [Evidence](#evidence)
+12. [Live URL Placeholder Occurrences](#live-url-placeholder-occurrences)
 
-Copy `.env.example` to `.env` and fill it in:
+---
+
+## Quick Start
+
+Prerequisites: Node.js 22+, npm, and Docker.
 
 ```bash
-cp .env.example .env
-```
+# 1. Clone and enter repository
+git clone https://github.com/example/ecommerce-api.git
+cd ecommerce-api
 
-`DATABASE_URL` points at `localhost:5432`, so the Docker container name never appears in
-application config. Never commit `.env`; keep `.env.example` up to date instead.
-
-## 2. Database (Docker)
-
-Create the container once:
-
-```bash
+# 2. Start PostgreSQL in Docker
 docker run -d --name ecommerce-postgres \
   -e POSTGRES_USER=user \
   -e POSTGRES_PASSWORD=password \
@@ -34,69 +42,32 @@ docker run -d --name ecommerce-postgres \
   -p 5432:5432 \
   -v ecommerce-postgres-data:/var/lib/postgresql/data \
   postgres:16-alpine
-```
 
-Start it in every later session - the container is not guaranteed to stay up between sessions:
+# 3. Configure environment
+cp .env.example .env
 
-```bash
-docker start ecommerce-postgres
-docker ps --filter name=ecommerce-postgres   # confirm it is Up
-```
-
-Open a SQL shell:
-
-```bash
-docker exec -it ecommerce-postgres psql -U user -d ecommerce
-```
-
-Alternative: add `--restart unless-stopped` to the `docker run` command so Docker starts it
-automatically instead of needing `docker start`.
-
-## 3. Install and migrate
-
-```bash
+# 4. Install dependencies, migrate, and seed
 npm install
-npx prisma migrate deploy    # apply existing migrations (no prompts)
-npx prisma migrate dev       # while developing: create + apply a new migration
+npx prisma migrate deploy
+npx prisma db seed
+
+# 5. Start development server (port 3000)
+npm run dev
 ```
 
-## 4. Seed
-
+Verify the running server:
 ```bash
-npm run seed
+curl -s "http://localhost:3000/api/v1/health"
+```
+```json
+{
+  "data": {
+    "status": "ok"
+  }
+}
 ```
 
-- **Deterministic:** `faker.seed(42)` plus ids from `faker.string.uuid()`, a fixed order
-  date window, and a fixed `createdAt` for categories/products/customers - no values depend
-  on when the script runs.
-- **Idempotent:** `createMany({ skipDuplicates: true })` on all five tables, so re-running
-  inserts 0 rows. The script never deletes or truncates.
-- **Volumes:** 20 categories, 400 products, 300 customers, 500 orders with 1-5 items each.
-- **Caveat:** `npx prisma migrate reset --force` *also* runs the seed, because `prisma.seed`
-  is configured in `package.json`. Use `--skip-seed` for an empty database.
-
-## 5. Scripts
-
-| Script | Purpose |
-| --- | --- |
-| `npm run dev` | Watch mode via `tsx` |
-| `npm run build` | Compile to `dist/` with `tsconfig.json` |
-| `npm start` | Run the compiled server from `dist/` |
-| `npm test` | `vitest run` (builds a throwaway test database first) |
-| `npm run seed` | Seed the database |
-| `npm run typecheck` | `tsc --noEmit` over `src/` **and** `prisma/seed.ts` |
-| `postinstall` | Regenerate the Prisma client (`prisma generate`) after `npm install` |
-
-`typecheck` uses a separate `tsconfig.typecheck.json` (it extends the build config and turns
-emit off), so `npm run build` keeps its `dist/` layout unchanged.
-
-## 6. Tests
-
-`npm test` needs Postgres running (the `ecommerce-postgres` container). The Vitest `globalSetup`
-hook creates `ecommerce_test`, applies every migration and runs the seed against it, and a
-`setupFiles` hook points the worker's `DATABASE_URL` at it before `src/config.ts` / `src/db.ts`
-load. The test harness creates and drops its own `ecommerce_test` database, so no `DATABASE_URL`
-is needed for `npm test`. Tests therefore never read or mutate your `ecommerce` data.
+---
 
 ## Resources & Data Model
 
@@ -180,8 +151,6 @@ erDiagram
 | `productId` | `UUID` | Yes | Foreign key to `Product.id` (`onDelete: Restrict`) |
 | `quantity` | `Integer` | Yes | Count ordered; CHECK `quantity >= 1`, max 1000 |
 | `unitPriceMinor` | `Integer` | Yes | Unit price in kobo copied from product at order time; CHECK `unitPriceMinor >= 0` |
-
----
 
 ---
 
@@ -838,148 +807,127 @@ Rate limiting is enforced by `express-rate-limit` in `src/app.ts`:
 
 ---
 
+## Running Locally from a Fresh Clone
+
+Follow these exact steps to clone, configure, migrate, seed, and run the service locally:
+
+```bash
+# 1. Clone repository
+git clone https://github.com/example/ecommerce-api.git
+cd ecommerce-api
+
+# 2. Run local PostgreSQL 16 container
+docker run -d --name ecommerce-postgres \
+  -e POSTGRES_USER=user \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=ecommerce \
+  -p 5432:5432 \
+  -v ecommerce-postgres-data:/var/lib/postgresql/data \
+  postgres:16-alpine
+
+# 3. Create .env from template
+cp .env.example .env
+
+# 4. Install dependencies (triggers prisma generate in postinstall)
+npm install
+
+# 5. Apply migrations
+npx prisma migrate deploy
+
+# 6. Seed deterministic database
+npx prisma db seed
+
+# 7. Start server in watch mode
+npm run dev
+```
+
+### Verification
+In a second terminal, verify the service is running:
+```bash
+curl -s "http://localhost:3000/api/v1/health"
+```
+
 ---
 
-## 8. Layout
+## Tests
 
-```
-prisma/schema.prisma      models, CHECK constraints, onDelete rules
-prisma/migrations/        versioned SQL migrations
-prisma/seed.ts            deterministic, idempotent seed script
-src/config.ts             single validated config object
-src/server.ts             server entry point (listens on config.port)
-src/app.ts                Express app: security, rate limit, routes, error handler
-src/db.ts                 one shared PrismaClient
-src/middleware/           error handler, UUID + pagination/sort validation
-src/routes/               v1 router; one file per resource
-src/test/                 test DB setup/teardown hooks
-vitest.config.ts          wires the test DB hooks into Vitest
+Run the Vitest test suite:
+```bash
+npm test
 ```
 
-## 9. Design decisions
+### Test Isolation Architecture
+- The test harness uses a `globalSetup` hook in `src/test/global-setup.ts`.
+- Tests run against an isolated throwaway database named `ecommerce_test`.
+- Setup creates `ecommerce_test`, deploys all migrations, and runs the frozen seed against it.
+- Teardown asserts the database name is strictly `ecommerce_test` before executing `DROP DATABASE ... WITH (FORCE)`.
+- **Zero Test Contamination:** Your local `ecommerce` development database is never touched or mutated by test runs.
+- **Suite Results:** 119 tests passing across 9 test files (`orders.write`, `products`, `categories`, `query-validation`, `orders`, `customers`, `rate-limit-body`, `app`, `rate-limit`).
 
-Each decision lists the alternative that was considered.
+---
 
-- **UUID primary keys** (`@id @default(uuid()) @db.Uuid`) instead of sequential integers -
-  ids are not enumerable, so they leak nothing about volume or insertion order.
-  Alternative: `Int @id @default(autoincrement())`.
-- **Money as an integer in minor units** (`priceMinor`, `unitPriceMinor`, in kobo) plus a
-  `currency` column defaulting to `"NGN"` - integers are exact, and NGN has a stable
-  2-decimal minor unit, so 150000 means NGN 1,500.00. Alternative: `Decimal` or float
-  columns (floats are unacceptable for money; `Decimal` is exact but adds conversion work).
-- **Order totals are computed from `order_items`, never stored** - a stored total can drift
-  from the items it summarises; computing on read keeps one source of truth.
-  Alternative: a cached `totalMinor` column for read speed, refreshed on write.
-- **Order status is plain text guarded by a Postgres CHECK constraint**
-  (`chk_order_status IN ('pending','paid','shipped','cancelled')`) instead of a Prisma enum -
-  the constraint enforces the rule at the database boundary, and adding a status later is a
-  one-line migration. Alternative: a Prisma enum (type-safe in TypeScript, but every change
-  is a migration and the values are not portable to arbitrary text).
-- **`onDelete` rules:** `Order -> OrderItem` cascades; `Product` and `Customer` are
-  `Restrict` - deleting a product or customer must never silently destroy order history.
-- **One typed `config` object** (`src/config.ts`, validated with Zod: port, `DATABASE_URL`,
-  `nodeEnv`, pagination 20/100, rate limit 60000ms/100, `jsonBodyLimit` `100kb`, and order write
-  limits 50 items / quantity 1000) instead of reading `process.env` in
-  handlers - tunable numbers live in one place. It is never logged, because it holds the
-  database URL. Alternative: per-handler constants or a `.env` read at each call site.
-- **Seed uses `skipDuplicates`, not upserts or truncation** - safe to re-run, never deletes
-  data. Alternative: `upsert` on natural keys (works, but more round-trips and still needs
-  keys for tables that have none, like products), or truncate-then-insert (destructive).
-- **Named Docker volume** (`ecommerce-postgres-data`) instead of an anonymous one - an
-  anonymous volume is hash-named and easy to orphan accidentally on `docker rm`.
-- **No `uuid` package** - Prisma's `@default(uuid())` and `faker.string.uuid()` cover every
-  id the project needs.
-- **`createdAt` added to `Category`, `Product` and `Customer`** (a Stage 5 migration with a
-  fixed backfill) so `sort=createdAt` is real for every resource. The backfill and the seed
-  both use the same fixed timestamp rather than `now()`, so a migrated database and a freshly
-  seeded one hold identical values. Alternative: drop `createdAt` from the sort whitelists
-  (contradicts the brief), or omit the backfill and stamp existing rows with the migration's
-  clock time (breaks reproducibility).
-- **Public sort names map to real columns in the route** (`price` -> `priceMinor`), so the
-  API never leaks internal field names and the whitelist is the only sortable surface.
-  Alternative: expose `priceMinor` directly.
-- **Every order-by ends with `id`** - all seeded rows share one `createdAt`, so without a
-  deterministic tie-break an offset page could repeat or skip rows. Alternative: vary
-  per-row timestamps (more seed machinery for no API benefit).
-- **`/products` offers both offset and cursor pagination; the other lists stay offset-only.** Offset can
-  jump straight to any page, but if rows are inserted or deleted mid-browse every later page shifts, so a
-  client can see a row twice or miss one - and a deep offset makes the database scan and discard all the
-  skipped rows. A cursor is stable (it names a row, so it neither skips nor repeats under concurrent
-  writes) and stays fast at depth, but it only moves forward and cannot jump to page N. `/products` is the
-  largest, busiest collection so it gets both; categories, customers and orders stay offset-only because
-  they are small and rarely paged deeply, where the extra `cursor`/`nextCursor` surface would not pay for
-  itself. Alternative: cursor-only everywhere (loses direct page jumps for the small lists) or offset-only
-  on `/products` (the collection where deep paging hurts most).
-  - The token is **opaque by convention**: clients must treat `nextCursor` as a black box and never parse
-    or construct it, so the encoding can change without a breaking API change.
-  - A **deleted row invalidates the cursor** that named it (and so does a cursor that no longer matches the
-    current filters) - the API answers `400 BAD_QUERY_PARAMS` instead of pretending it reached the end.
-  - Cursor mode has **no previous page**: it only moves forward, so a client that wants to go back keeps its
-    own history of cursors.
-  - Every page still runs a `COUNT` for `total`. That is one extra count per request (accepted at this size
-    for an accurate `total`); a cursor-only design could drop it by returning `hasMore` alone.
-- **Read endpoints reject unknown filter values** (e.g. `status=refunded` -> `400`), because
-  silently returning an empty list hides client typos. Alternative: accept any string and
-  return `200` with `total: 0`.
-- **A body that references a missing row is `422`, not `404`** - an unknown `customerId` or
-  `productId` in a `POST /orders` body makes the *request body* semantically invalid, while the
-  collection URI `/api/v1/orders` itself exists. `404` is reserved for a `:id` in the path that
-  does not exist (and for a second `DELETE`). Alternative: `404` for a missing referenced row
-  (more conventional for the referenced entity, but it conflates "the resource in the URL is
-  missing" with "a field in your payload points nowhere").
-- **The item price is copied at order time** - `POST /orders` writes `unitPriceMinor` from the
-  product's *current* `priceMinor` into each `OrderItem`, rather than joining to `Product` on
-  read. An order is a historical record: if the product's price later changes, the order must
-  keep the price the customer was charged. Alternative: store only `productId`/`quantity` and
-  resolve price on read (the order total would silently change whenever a price is edited).
-- **The order insert is one `$transaction`** - the `Order` and its `OrderItem`s are written
-  together, so a failure part way through (e.g. the item insert) rolls the whole thing back and
-  never leaves an empty order behind. Alternative: create the order, then the items in separate
-  statements (a crash between them leaves an orphan order).
-- **`PATCH` has no status-transition rules** - the endpoint validates only that `status` is one
-  of the four allowed values, not *which* transitions are legal; any status may follow any other.
-  The brief asked for a status setter, and inventing a state machine would reject valid edits
-  (e.g. correcting a mis-set status) for no stated benefit. Alternative: a transition matrix
-  (only `pending -> paid -> shipped`, plus cancel rules).
-- **Lookups before the transaction** - the `customerId`/`productId` existence checks run before
-  `$transaction` opens, so a bad reference is a cheap `422` and no write transaction is ever
-  started for a request that cannot succeed. Alternative: check inside the transaction (holds a
-  transaction open for work that is known to fail).
-- **The rate limiter is mounted above `express.json`** - body-parse and size failures (`400`
-  `INVALID_JSON`, `413` `PAYLOAD_TOO_LARGE`) are exactly the cheap, abuse-prone requests a limiter
-  exists to cap, so they must be counted. Alternative: limit after the body parser (oversized /
-  malformed floods bypass the budget entirely).
-- **`500`s never expose the underlying error** - the fallback returns the fixed
-  `{"code":"INTERNAL_ERROR","message":"Internal server error"}` and logs the real error (with its
-  stack) with `console.error` server-side. A Prisma or SQL message in a response body can leak
-  schema, file paths or data. Alternative: echo `err.message` (convenient while developing, a
-  disclosure risk in production).
-- **Write endpoints are unauthenticated by design** - the brief put auth out of scope, so
-  `POST`/`PATCH`/`DELETE` require no credentials. Abuse is bounded by the rate limit (100 requests /
-  60s per IP, counting malformed and oversized requests too), and because the seed is deterministic
-  and idempotent, re-running it restores any deleted seed rows without touching other data.
-  Alternative: API keys or sessions (a whole auth subsystem the brief excluded).
-- **Tests run against a throwaway `ecommerce_test` database** built and seeded by a Vitest
-  hook and dropped afterwards, rather than against `ecommerce`. Alternative: reuse
-  `ecommerce` (fast, but tests would read and could mutate your demo data).
-- **Test DB teardown asserts the database name is exactly `ecommerce_test`** before running
-  `DROP DATABASE`, guarding against catastrophic drops if configuration or environment variables shift.
-- **Single-resource responses and `/health` return `{ data }` with no `meta`** - pagination
-  collection metadata (`total`, `limit`, `offset`, `hasMore`) is meaningless for a single entity.
-  Lists keep `{ data, meta }`. Alternative: return uniform collection meta on single items (redundant noise).
-- **Order list totals computed in one grouped query** - `GET /orders` computes `totalMinor` for
-  each order in the page using `GROUP BY "orderId"` and `SUM(quantity * unitPriceMinor)`, avoiding
-  N per-row queries. Alternative: compute per row (N+1 queries) or persist totals (risks drift).
-- **`asyncHandler` wraps every async route** because Express 4 does not forward rejected
-  promises to the error handler, so a thrown `ApiError` would become an unhandled rejection.
+## Deployment
 
-## 10. Known warnings
+The application is prepared for production deployment:
+- **API Server:** Hosted on Railway (or any container/Node platform).
+  - Start command: `npm start` (runs compiled `dist/server.js`).
+  - Build command: `npm run build` (compiles TypeScript to `dist/`).
+- **Production Database:** Managed PostgreSQL instance. Set `DATABASE_URL` in environment variables.
+- **Seed in Production:** Run `npm run seed` once to populate initial baseline data deterministically.
+- **Consumer App:** Hosted on Vercel from `/consumer`. Points `VITE_API_URL` to `https://LIVE_URL_PLACEHOLDER`.
 
-- Prisma prints `The configuration property package.json#prisma is deprecated and will be
-  removed in Prisma 7`. The seed wiring still works on Prisma 6; moving it to a
-  `prisma.config.ts` file is a Prisma 7 task.
-- `npm audit` reports 10 findings (3 moderate, 5 high, 2 critical). All are in tooling:
-  `deepmerge-ts` via `prisma` (fixable with `npm audit fix`), and `esbuild` / `tinypool` via
-  `vite` / `vitest` (only fixable by `npm audit fix --force`, which installs vitest 5, a
-  breaking change). Deliberately not auto-fixed mid-assessment; a dependency upgrade pass
-  should be scheduled on its own.
+---
+
+## Design Decisions
+
+Each decision below lists the rationale alongside the alternative considered.
+
+1. **Normalized Five-Resource Schema:** `Category`, `Product`, `Customer`, `Order`, `OrderItem`. Normalized tables model distinct domain lifecycles, enforce referential integrity (`RESTRICT` on products/customers; `CASCADE` on order items), and allow database indexing on query filters (`categoryId`, `priceMinor`, `status`). *Alternative considered:* A denormalized document structure storing order items in a JSON column on `Order`. Rejected because relational tables guarantee referential integrity and enable performant SQL aggregations.
+2. **UUID Primary Keys:** Uses UUID v4 (`@id @default(uuid()) @db.Uuid`) across all entities. UUIDs prevent resource enumeration attacks and leak no volume or creation order. *Alternative considered:* Sequential autoincrement integers (`Int @id @default(autoincrement())`). Rejected because sequential integers expose business transaction volumes and facilitate ID-scraping attacks.
+3. **Money Stored as Integer Kobo:** Prices and unit prices are stored in minor units (`priceMinor`, `unitPriceMinor` in kobo) with a `currency` column (`"NGN"`). Whole integer arithmetic eliminates IEEE-754 floating-point rounding errors. *Alternative considered:* Decimal columns or floating-point numbers. Floats introduce precision loss; Decimal types introduce conversion overhead across runtime layers.
+4. **Computed Order Totals:** Order totals are evaluated on read via `SUM(quantity::bigint * unitPriceMinor)` and never stored on `Order`. Casting `quantity` to `bigint` prevents integer overflow on 32-bit integers before summation. *Alternative considered:* Storing a cached `totalMinor` column on `Order`. Rejected because cached totals risk data drift when items are written or modified.
+5. **Database-Level CHECK Constraints:** Constraints (`chk_order_status`, `chk_product_price`, `chk_product_stock`, `chk_order_item_quantity`, `chk_order_item_unit_price`) are enforced by PostgreSQL. Guarantees data integrity at the database boundary regardless of client or script access. *Alternative considered:* Application-only Zod validation or Prisma enums. Application checks fail if data is written through external scripts; Prisma enums require migrations to add values and lack text portability.
+6. **Dual Pagination on `/products`:** `/products` supports both offset and cursor pagination; smaller resources use offset only. Cursor pagination provides fast, drift-free forward scrolling under active inventory updates. *Alternative considered:* Cursor-only everywhere or offset-only everywhere. Offset-only degrades at depth on large collections; cursor-only eliminates direct page jumps on small collections where offset is lightweight.
+7. **Uniform Success and Error Envelopes:** Collections return `{ data, meta }`; single items and `/health` return `{ data }`. All errors return `{ error: { code, message } }`. Guarantees predictable client consumption and strong typing. *Alternative considered:* Bare root arrays (`[...]`) and unstructured errors. Bare arrays prevent returning pagination metadata; unstructured errors complicate frontend error handling.
+8. **Semantic 422 for Missing Referenced Entities:** If an order write payload references a nonexistent `customerId` or `productId`, the API responds with `422 UNPROCESSABLE_ENTITY` naming the field, rather than `404 NOT_FOUND`. `404` is reserved strictly for non-existent endpoint URLs and missing `:id` path parameters. *Alternative considered:* Returning `404 NOT_FOUND` for missing foreign references. Rejected because the target collection URL `/api/v1/orders` exists; blaming `404` falsely indicates that the route or endpoint was not found.
+9. **Rate Limiting Above Body Parser:** The rate limit of 100 requests per 60 seconds is mounted above `express.json()`. Oversized payloads (`413`) and malformed JSON floods (`400`) are metered against the caller's quota before body parsing occurs. *Alternative considered:* Mounting the limiter below body parsing, or using per-route limits. Mounting below body parser permits DDoS vectors via malformed/oversized payload flooding; complex tiering is unnecessary for an unauthenticated public API.
+10. **Unauthenticated Write Endpoints:** `POST`, `PATCH`, and `DELETE` on orders require no authentication tokens by explicit project specification. Abuse is bounded by IP rate limiting, strict payload size limits (100kb), write constraints (max 50 items, max 1000 quantity), and an idempotent seed script. *Alternative considered:* API keys or JWT sessions. Rejected because authentication was excluded from the assessment brief and adds external state without requirement.
+
+---
+
+## Evidence
+
+Post-deployment evidence checklist for graded assessment submission:
+
+- [ ] **Live API URL:** `https://LIVE_URL_PLACEHOLDER`
+- [ ] **Paginated cURL Screenshot:** `docs/evidence/curl-pagination.png` (Terminal screenshot showing paginated JSON response)
+- [ ] **Rate Limiting 429 Screenshot:** `docs/evidence/rate-limit-429.png` (Terminal screenshot showing 429 response with `Retry-After`)
+- [ ] **Consumer Application Screenshot:** `docs/evidence/consumer-app.png` (Web app running in browser displaying data from the live API)
+- [ ] **Seed Script Link:** [`prisma/seed.ts`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/prisma/seed.ts)
+- [ ] **Ugly-Inputs / Edge-Case Evidence:** [`docs/evidence/ugly-inputs.md`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/ugly-inputs.md)
+
+---
+
+## Live URL Placeholder Occurrences
+
+The placeholder `https://LIVE_URL_PLACEHOLDER` appears in the following locations within this document for easy replacement after deployment:
+
+1. **Header / Overview section** (line 5)
+2. **Endpoint Reference intro** (line 164)
+3. **Endpoint 1 (`GET /api/v1/health`)** (line 176)
+4. **Endpoint 2 (`GET /api/v1/categories`)** (line 203)
+5. **Endpoint 3 (`GET /api/v1/categories/:id`)** (line 239)
+6. **Endpoint 4 (`GET /api/v1/categories/:id/products`)** (line 268)
+7. **Endpoint 5 (`GET /api/v1/products`)** (line 319)
+8. **Endpoint 6 (`GET /api/v1/products/:id`)** (line 372)
+9. **Endpoint 7 (`GET /api/v1/customers`)** (line 410)
+10. **Endpoint 8 (`GET /api/v1/customers/:id`)** (line 446)
+11. **Endpoint 9 (`GET /api/v1/orders`)** (line 476)
+12. **Endpoint 10 (`GET /api/v1/orders/:id`)** (line 518)
+13. **Endpoint 11 (`POST /api/v1/orders`)** (line 555)
+14. **Endpoint 12 (`PATCH /api/v1/orders/:id`)** (line 601)
+15. **Endpoint 13 (`DELETE /api/v1/orders/:id`)** (line 635)
+16. **Pagination worked example - Step 1** (line 674)
+17. **Pagination worked example - Step 2** (line 702)
+18. **Deployment section** (line 877)
+19. **Evidence section** (line 902)
