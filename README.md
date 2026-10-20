@@ -91,11 +91,11 @@ emit off), so `npm run build` keeps its `dist/` layout unchanged.
 
 ## 6. Tests
 
-`npm test` needs no environment setup: a Vitest `globalSetup` hook creates `ecommerce_test`,
-applies every migration and runs the seed against it, and a `setupFiles` hook points the
-worker's `DATABASE_URL` at it before `src/config.ts` / `src/db.ts` load. The database is
-dropped again in teardown. Tests therefore never read or mutate your `ecommerce` data, and a
-clean checkout can run `npm test` without exporting `DATABASE_URL` by hand.
+`npm test` needs Postgres running (the `ecommerce-postgres` container). The Vitest `globalSetup`
+hook creates `ecommerce_test`, applies every migration and runs the seed against it, and a
+`setupFiles` hook points the worker's `DATABASE_URL` at it before `src/config.ts` / `src/db.ts`
+load. The test harness creates and drops its own `ecommerce_test` database, so no `DATABASE_URL`
+is needed for `npm test`. Tests therefore never read or mutate your `ecommerce` data.
 
 ## 7. API
 
@@ -111,6 +111,19 @@ All routes are under `/api/v1`. Collection endpoints return a data envelope with
 // Error responses:
 { "error": { "code": "NOT_FOUND", "message": "Product not found" } }
 ```
+
+Every error uses that envelope. The complete set of `code` values the API can return:
+
+| HTTP | `code` | When it is returned |
+| --- | --- | --- |
+| `400` | `BAD_QUERY_PARAMS` | invalid `limit`/`offset`/`sort`/`order`, an unknown filter value, a malformed `customerId` filter, or `minPrice > maxPrice` |
+| `400` | `INVALID_JSON` | the request body is not valid JSON |
+| `404` | `NOT_FOUND` | unknown route, unknown **or** malformed `:id`, or a second `DELETE` of an already-deleted order |
+| `413` | `PAYLOAD_TOO_LARGE` | the request body exceeds `config.jsonBodyLimit` (`100kb`) |
+| `422` | `UNPROCESSABLE_ENTITY` | a write body fails validation, or references a customer/product that does not exist |
+| `429` | `TOO_MANY_REQUESTS` | the rate limit is exceeded (`100` requests / `60s` per IP) |
+| `500` | `INTERNAL_ERROR` | an unexpected server error; the message is always the generic `"Internal server error"` - the real error is logged server-side only |
+
 
 | Method & path | Filters | `sort` whitelist |
 | --- | --- | --- |
@@ -134,8 +147,43 @@ malformed or unknown `:id` returns `404 NOT_FOUND` (never `500`).
 - `GET /orders` list items include `totalMinor`, computed across the page in one grouped query (`SUM(quantity * unitPriceMinor)` grouped by `orderId`).
 - `GET /orders/:id` returns `items` plus `totalMinor`, computed in the query
   (`SUM(quantity * unitPriceMinor)`) and never stored.
+- Money totals cast before multiplying: `quantity` and `unitPriceMinor` are both `int4`, so the
+  query uses `SUM(quantity::bigint * unitPriceMinor)`. Without the cast `int4 * int4` overflows
+  above `2,147,483,647` (e.g. `2 x 2,000,000,000`) before `SUM` ever runs.
 - `createdAt` is identical across seeded rows, so every order-by adds `id` as a tie-break
   and offset pagination stays stable page to page.
+
+### Write endpoints
+
+| Method & path | Body | Success |
+| --- | --- | --- |
+| `POST /orders` | `{ customerId, items: [{ productId, quantity }] }` | `201` + `Location: /api/v1/orders/:id`; body carries `items` and computed `totalMinor` |
+| `PATCH /orders/:id` | `{ status }`, one of `pending`, `paid`, `shipped`, `cancelled` | `200` with the **same shape as `GET /orders/:id`** (order head + `items` + computed `totalMinor`) |
+| `DELETE /orders/:id` | none | `204` with an empty body |
+
+- Request bodies use **strict** Zod schemas: an unknown field is rejected with `422` naming that
+  field instead of being silently dropped. `items` must hold 1–`config.orders.maxItemsPerOrder`
+  entries (`50`), each `quantity` must be 1–`config.orders.maxQuantityPerItem`, and
+  **`maxQuantityPerItem` is `1000`**. All ids must be UUIDs. `422` messages name the exact location
+  (`items[0].quantity`, `items[1].productId`, `note`, `customerId`).
+- A well-formed `customerId`/`productId` that does not exist is also a `422` naming the field -
+  `customerId: customer does not exist`, `items[0].productId: product does not exist` - because the
+  collection URI `/api/v1/orders` itself exists; replying `404` would blame the wrong resource.
+- `POST` performs its writes in **one `$transaction`**: the order and its items are inserted
+  together, each item's `unitPriceMinor` is copied from the product's current price at order time,
+  and `totalMinor` is computed from the inserted rows. It does **not** decrement stock and contains
+  no payment logic.
+- `PATCH` changes `status` only and enforces **no transition rules**: any of the four statuses may
+  move to any other, in any order (there is no state machine). Its response is the full order
+  detail, so a client never needs a follow-up `GET`.
+- `PATCH`/`DELETE` treat both an **unknown** and a **malformed** `:id` as `404 NOT_FOUND`; a second
+  `DELETE` of the same id is likewise `404`.
+- The customer/product lookups run **before** the transaction, so a bad reference is rejected
+  without opening a write transaction at all.
+- Body-size and parse failures are handled before any route: over `config.jsonBodyLimit` (`100kb`)
+  -> `413 PAYLOAD_TOO_LARGE`, malformed JSON -> `400 INVALID_JSON`. The rate limiter is mounted
+  **above** `express.json`, so these malformed/oversized requests are counted too (they carry
+  `RateLimit-*` headers, and a flood of them still hits `429`).
 
 ## 8. Layout
 
@@ -175,7 +223,8 @@ Each decision lists the alternative that was considered.
 - **`onDelete` rules:** `Order -> OrderItem` cascades; `Product` and `Customer` are
   `Restrict` - deleting a product or customer must never silently destroy order history.
 - **One typed `config` object** (`src/config.ts`, validated with Zod: port, `DATABASE_URL`,
-  `nodeEnv`, pagination 20/100, rate limit 60000ms/100) instead of reading `process.env` in
+  `nodeEnv`, pagination 20/100, rate limit 60000ms/100, `jsonBodyLimit` `100kb`, and order write
+  limits 50 items / quantity 1000) instead of reading `process.env` in
   handlers - tunable numbers live in one place. It is never logged, because it holds the
   database URL. Alternative: per-handler constants or a `.env` read at each call site.
 - **Seed uses `skipDuplicates`, not upserts or truncation** - safe to re-run, never deletes
@@ -200,6 +249,44 @@ Each decision lists the alternative that was considered.
 - **Read endpoints reject unknown filter values** (e.g. `status=refunded` -> `400`), because
   silently returning an empty list hides client typos. Alternative: accept any string and
   return `200` with `total: 0`.
+- **A body that references a missing row is `422`, not `404`** - an unknown `customerId` or
+  `productId` in a `POST /orders` body makes the *request body* semantically invalid, while the
+  collection URI `/api/v1/orders` itself exists. `404` is reserved for a `:id` in the path that
+  does not exist (and for a second `DELETE`). Alternative: `404` for a missing referenced row
+  (more conventional for the referenced entity, but it conflates "the resource in the URL is
+  missing" with "a field in your payload points nowhere").
+- **The item price is copied at order time** - `POST /orders` writes `unitPriceMinor` from the
+  product's *current* `priceMinor` into each `OrderItem`, rather than joining to `Product` on
+  read. An order is a historical record: if the product's price later changes, the order must
+  keep the price the customer was charged. Alternative: store only `productId`/`quantity` and
+  resolve price on read (the order total would silently change whenever a price is edited).
+- **The order insert is one `$transaction`** - the `Order` and its `OrderItem`s are written
+  together, so a failure part way through (e.g. the item insert) rolls the whole thing back and
+  never leaves an empty order behind. Alternative: create the order, then the items in separate
+  statements (a crash between them leaves an orphan order).
+- **`PATCH` has no status-transition rules** - the endpoint validates only that `status` is one
+  of the four allowed values, not *which* transitions are legal; any status may follow any other.
+  The brief asked for a status setter, and inventing a state machine would reject valid edits
+  (e.g. correcting a mis-set status) for no stated benefit. Alternative: a transition matrix
+  (only `pending -> paid -> shipped`, plus cancel rules).
+- **Lookups before the transaction** - the `customerId`/`productId` existence checks run before
+  `$transaction` opens, so a bad reference is a cheap `422` and no write transaction is ever
+  started for a request that cannot succeed. Alternative: check inside the transaction (holds a
+  transaction open for work that is known to fail).
+- **The rate limiter is mounted above `express.json`** - body-parse and size failures (`400`
+  `INVALID_JSON`, `413` `PAYLOAD_TOO_LARGE`) are exactly the cheap, abuse-prone requests a limiter
+  exists to cap, so they must be counted. Alternative: limit after the body parser (oversized /
+  malformed floods bypass the budget entirely).
+- **`500`s never expose the underlying error** - the fallback returns the fixed
+  `{"code":"INTERNAL_ERROR","message":"Internal server error"}` and logs the real error (with its
+  stack) with `console.error` server-side. A Prisma or SQL message in a response body can leak
+  schema, file paths or data. Alternative: echo `err.message` (convenient while developing, a
+  disclosure risk in production).
+- **Write endpoints are unauthenticated by design** - the brief put auth out of scope, so
+  `POST`/`PATCH`/`DELETE` require no credentials. Abuse is bounded by the rate limit (100 requests /
+  60s per IP, counting malformed and oversized requests too), and because the seed is deterministic
+  and idempotent, re-running it restores any deleted seed rows without touching other data.
+  Alternative: API keys or sessions (a whole auth subsystem the brief excluded).
 - **Tests run against a throwaway `ecommerce_test` database** built and seeded by a Vitest
   hook and dropped afterwards, rather than against `ecommerce`. Alternative: reuse
   `ecommerce` (fast, but tests would read and could mutate your demo data).
