@@ -57,6 +57,21 @@ describe('GET /api/v1/customers', () => {
     expect(res.body.data.some((c: { id: string }) => c.id === pick.id)).toBe(true);
   });
 
+  it('treats LIKE wildcards in name and email as literal characters', async () => {
+    // Unescaped, `%` would match every row and `_` any single character.
+    const namePercent = await request(app).get('/api/v1/customers?name=%25');
+    expect(namePercent.body.meta.total).toBe(0);
+
+    const nameUnderscore = await request(app).get('/api/v1/customers?name=_');
+    expect(nameUnderscore.body.meta.total).toBe(0);
+
+    const emailPercent = await request(app).get('/api/v1/customers?email=%25');
+    expect(emailPercent.body.meta.total).toBe(0);
+
+    const emailUnderscore = await request(app).get('/api/v1/customers?email=_');
+    expect(emailUnderscore.body.meta.total).toBe(0);
+  });
+
   it('sorts by a whitelisted field and order', async () => {
     const res = await request(app).get('/api/v1/customers?sort=name&order=desc');
     const ids = res.body.data.map((c: { id: string }) => c.id);

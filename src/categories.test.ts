@@ -73,6 +73,22 @@ describe('GET /api/v1/categories', () => {
     expect(mismatch.body.meta.total).toBe(0);
   });
 
+  it('treats LIKE wildcards in name as literal characters', async () => {
+    // Unescaped, `%` would match every row and `_` any single character, so all
+    // three of these would otherwise return the whole collection.
+    const percent = await request(app).get('/api/v1/categories?name=%25');
+    expect(percent.status).toBe(200);
+    expect(percent.body.meta.total).toBe(0);
+
+    const underscore = await request(app).get('/api/v1/categories?name=_');
+    expect(underscore.status).toBe(200);
+    expect(underscore.body.meta.total).toBe(0);
+
+    const backslash = await request(app).get('/api/v1/categories?name=%5C');
+    expect(backslash.status).toBe(200);
+    expect(backslash.body.meta.total).toBe(0);
+  });
+
   it('sorts by a whitelisted field and order', async () => {
     const res = await request(app).get('/api/v1/categories?sort=name&order=desc');
     const ids = res.body.data.map((c: { id: string }) => c.id);

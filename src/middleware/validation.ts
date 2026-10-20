@@ -119,3 +119,10 @@ export const parseFilterQuery = <T extends z.ZodTypeAny>(schema: T, req: Request
   }
   return result.data as z.infer<T>;
 };
+
+// Prisma's `contains` compiles to SQL `ILIKE '%value%'` and does NOT escape the
+// user's LIKE metacharacters, so `name=%` would match every row and `name=_`
+// would match any single character. Escape `\`, `%` and `_` so a text filter
+// matches those characters literally; Postgres' default LIKE escape character
+// is the backslash, so `\%` / `\_` / `\\` are read as literals.
+export const escapeLikePattern = (value: string): string => value.replace(/[\\%_]/g, '\\$&');

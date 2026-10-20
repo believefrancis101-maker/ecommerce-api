@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/async';
 import { ApiError, listMeta, ok, okItem } from '../utils/response';
 import {
   createPaginationQuerySchema,
+  escapeLikePattern,
   parseFilterQuery,
   parsePaginationQuery,
   uuidParam,
@@ -35,8 +36,12 @@ router.get(
 
     const filters = parseFilterQuery(filterSchema, req);
     const where = {
-      ...(filters.name !== undefined ? { name: { contains: filters.name, mode: 'insensitive' as const } } : {}),
-      ...(filters.email !== undefined ? { email: { contains: filters.email, mode: 'insensitive' as const } } : {}),
+      ...(filters.name !== undefined
+        ? { name: { contains: escapeLikePattern(filters.name), mode: 'insensitive' as const } }
+        : {}),
+      ...(filters.email !== undefined
+        ? { email: { contains: escapeLikePattern(filters.email), mode: 'insensitive' as const } }
+        : {}),
     };
 
     const [total, rows] = await Promise.all([
