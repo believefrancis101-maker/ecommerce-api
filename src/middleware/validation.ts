@@ -50,10 +50,23 @@ const queryInt = (label: string) =>
       .optional()
   );
 
+// `limit` is stricter than `offset`: absent means "use the default", but every
+// supplied value must be a positive integer. An explicit 0, a negative number,
+// a non-number or an empty value (`?limit=`) is a client error rather than a
+// silent fallback to the default page size. Values above `maxLimit` are clamped.
+const limitInt = z.preprocess(
+  (raw) => (raw === null ? undefined : raw),
+  z
+    .string()
+    .regex(/^\d+$/, 'limit must be a positive integer')
+    .refine((value) => Number(value) > 0, 'limit must be a positive integer')
+    .optional()
+);
+
 export const createPaginationQuerySchema = (sortWhitelist: string[]) =>
   z
     .object({
-      limit: queryInt('limit'),
+      limit: limitInt,
       offset: queryInt('offset'),
       sort: z.string().optional(),
       order: sortOrderSchema,
@@ -69,10 +82,10 @@ export const createPaginationQuerySchema = (sortWhitelist: string[]) =>
     })
     .transform((value): PaginationResult => {
       const requested = value.limit === undefined ? config.pagination.defaultLimit : Number(value.limit);
-      // limit=0 is treated as "not supplied"; anything above maxLimit is clamped
-      // so a caller can never ask this API for the whole table.
-      const limit =
-        requested === 0 ? config.pagination.defaultLimit : Math.min(requested, config.pagination.maxLimit);
+      // Anything above maxLimit is clamped so a caller can never ask this API
+      // for the whole table. An explicit limit=0 is rejected by limitInt above,
+      // so `requested` is always at least 1 here.
+      const limit = Math.min(requested, config.pagination.maxLimit);
       const offset = value.offset === undefined ? 0 : Number(value.offset);
 
       return {
@@ -90,4 +103,16 @@ export const parsePaginationQuery = <T extends z.ZodTypeAny>(schema: T, req: Req
     throw new ApiError(400, 'BAD_QUERY_PARAMS', `${field}${first?.message ?? 'Invalid query parameters'}`);
   }
   return result.data as z.infer<T>;
+};
+
+// Optional, non-empty string filter (e.g. `q`). A present-but-empty value
+// (`?q=`) is rejected instead of being silently dropped, so an empty filter can
+// never "match everything" by accident.
+export const optionalQueryString = (req: Request, key: string): string | undefined => {
+  const raw = req.query[key];
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || raw.length === 0) {
+    throw new ApiError(400, 'BAD_QUERY_PARAMS', `${key}: ${key} must be a non-empty string`);
+  }
+  return raw;
 };

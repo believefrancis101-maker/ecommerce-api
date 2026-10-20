@@ -116,7 +116,7 @@ Every error uses that envelope. The complete set of `code` values the API can re
 
 | HTTP | `code` | When it is returned |
 | --- | --- | --- |
-| `400` | `BAD_QUERY_PARAMS` | invalid `limit`/`offset`/`sort`/`order`, an unknown filter value, a malformed `customerId` filter, or `minPrice > maxPrice` |
+| `400` | `BAD_QUERY_PARAMS` | invalid `limit`/`offset`/`sort`/`order` (including `limit=0` and an empty `limit`), an empty or unknown filter value, a malformed `customerId` filter, or `minPrice > maxPrice` |
 | `400` | `INVALID_JSON` | the request body is not valid JSON |
 | `404` | `NOT_FOUND` | unknown route, unknown **or** malformed `:id`, or a second `DELETE` of an already-deleted order |
 | `413` | `PAYLOAD_TOO_LARGE` | the request body exceeds `config.jsonBodyLimit` (`100kb`) |
@@ -137,10 +137,20 @@ Every error uses that envelope. The complete set of `code` values the API can re
 | `GET /orders` | `status`, `customerId` | `createdAt` |
 | `GET /orders/:id` | - | - |
 
-Every list accepts `limit` (default 20, max 100, clamped), `offset` (default 0), `sort` and
-`order` (`asc`/`desc`). `sort` outside a resource's whitelist, a non-numeric `limit`/`offset`,
-`minPrice` greater than `maxPrice`, an unknown `status` and a malformed `customerId` all return `400 BAD_QUERY_PARAMS`. A
-malformed or unknown `:id` returns `404 NOT_FOUND` (never `500`).
+Every list accepts `limit` (default 20, max 100), `offset` (default 0), `sort` and `order` (`asc`/`desc`).
+
+- **`limit` is clamped when it is too large, rejected when it is not a positive integer.** `limit=5000` returns
+  `200` with `meta.limit = 100` (clamped to `config.pagination.maxLimit`), while `limit=0`, `limit=-5`, `limit=abc`
+  and an empty `limit` (`?limit=`) all return `400 BAD_QUERY_PARAMS`. An absent `limit` uses the default (`20`).
+  This rule lives in the shared pagination schema, so it applies to every list endpoint.
+- `offset=0` is valid (any non-negative integer is); a negative or non-numeric `offset` returns `400 BAD_QUERY_PARAMS`.
+- **An empty filter value is rejected, never silently ignored** - `?q=` on `/categories` or `/customers`,
+  `?category=` / `?minPrice=` / `?maxPrice=` / `?inStock=` on `/products`, and `?status=` / `?customerId=` on
+  `/orders` all return `400 BAD_QUERY_PARAMS` rather than "matching everything". The numeric filters treat `0` as a
+  real bound (`minPrice=0` is `>= 0`, `maxPrice=0` is `<= 0`), so a value of `0` is never dropped.
+
+`sort` outside a resource's whitelist, `minPrice` greater than `maxPrice`, an unknown `status` and a malformed
+`customerId` all return `400 BAD_QUERY_PARAMS`. A malformed or unknown `:id` returns `404 NOT_FOUND` (never `500`).
 
 - `minPrice` / `maxPrice` are in **kobo** (minor units), matching the stored `priceMinor`.
 - If `offset` exceeds the total count (e.g. `GET /api/v1/products?offset=5000`), the response returns `200` with `data: []`, `hasMore: false`, and the accurate `total`.

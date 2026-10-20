@@ -4,6 +4,7 @@ import { asyncHandler } from '../utils/async';
 import { ApiError, listMeta, ok, okItem } from '../utils/response';
 import {
   createPaginationQuerySchema,
+  optionalQueryString,
   parsePaginationQuery,
   uuidParam,
   validateUuidParam,
@@ -28,7 +29,7 @@ router.get(
     const field = (sort?.field ?? 'name') as keyof typeof CATEGORY_SORT_COLUMNS;
     const direction = sort?.direction ?? 'asc';
 
-    const q = typeof req.query.q === 'string' ? req.query.q : undefined;
+    const q = optionalQueryString(req, 'q');
     const where = q
       ? {
           OR: [
