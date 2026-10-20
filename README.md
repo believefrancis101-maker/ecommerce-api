@@ -868,13 +868,22 @@ npm test
 
 ## Deployment
 
-The application is prepared for production deployment:
-- **API Server:** Hosted on Railway (or any container/Node platform).
-  - Start command: `npm start` (runs compiled `dist/server.js`).
-  - Build command: `npm run build` (compiles TypeScript to `dist/`).
-- **Production Database:** Managed PostgreSQL instance. Set `DATABASE_URL` in environment variables.
-- **Seed in Production:** Run `npm run seed` once to populate initial baseline data deterministically.
-- **Consumer App:** Hosted on Vercel from `/consumer`. Points `VITE_API_URL` to `https://LIVE_URL_PLACEHOLDER`.
+The application is deployed across two platforms: the backend API and PostgreSQL database are hosted on **Railway**, while the React + Vite consumer application is hosted on **Vercel**. For detailed step-by-step setup, smoke testing, and verification procedures, refer to the [Production Deployment Runbook](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/DEPLOY.md).
+
+### Environment Variables Matrix
+
+| Platform | Variable | Type | Description |
+| :--- | :--- | :--- | :--- |
+| **Railway (API)** | `DATABASE_URL` | Private Reference | `${{Postgres.DATABASE_URL}}` (connects over internal private mesh) |
+| **Railway (API)** | `NODE_ENV` | Configuration | `production` |
+| **Railway (API)** | `PORT` | Dynamic | Injected automatically by Railway runtime |
+| **Railway (API)** | `CORS_ORIGIN` | Configuration | Optional allowed origin; `*.vercel.app` domains are permitted automatically |
+| **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://LIVE_URL_PLACEHOLDER/api/v1` (baked in at consumer build time) |
+
+### Deployment Overview
+1. **Database:** PostgreSQL 16 provisioned on Railway. Production migrations run forward-only via `npx prisma migrate deploy` in the pre-deploy phase.
+2. **API Service:** Express application built and started via Nixpacks (`npm run build` -> `npm start`). Verified by automated healthchecks on `/api/v1/health`.
+3. **Consumer App:** Built and deployed on Vercel from `/consumer`, pointing `VITE_API_URL` to `https://LIVE_URL_PLACEHOLDER/api/v1`.
 
 ---
 
@@ -929,5 +938,5 @@ The placeholder `https://LIVE_URL_PLACEHOLDER` appears in the following location
 15. **Endpoint 13 (`DELETE /api/v1/orders/:id`)** (line 635)
 16. **Pagination worked example - Step 1** (line 674)
 17. **Pagination worked example - Step 2** (line 702)
-18. **Deployment section** (line 877)
-19. **Evidence section** (line 902)
+18. **Deployment section** (lines 881 & 886)
+19. **Evidence section** (line 911)
