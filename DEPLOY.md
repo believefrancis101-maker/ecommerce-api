@@ -41,7 +41,9 @@ Select the **ecommerce-api** service, navigate to the **Variables** tab, and con
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Cross-service reference resolving to the private internal database network. |
 | `NODE_ENV` | `production` | Enables production runtime mode. **Must be set**, otherwise it defaults to `development` and local development origins stay CORS-allowed. See [CORS Behaviour](#cors-behaviour). |
 | `CORS_ORIGIN` | `https://your-consumer.vercel.app` | *(Optional / set after consumer deployment)* Comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically, so this is only needed for a custom domain. |
-| `TRUST_PROXY_HOPS` | `1` | *(Optional, default `1`)* Number of reverse-proxy hops Express trusts when deriving `req.ip`, which is the rate limiter key. Set to `2` if the live deployment's `X-Forwarded-For` carries two entries. See [Step 9: Rate Limit & Security Verification](#step-9-rate-limit--security-verification). |
+| `TRUST_PROXY_HOPS` | `1` | *(Optional, default `1`)* Number of reverse-proxy hops Express trusts when deriving `req.ip`. Still needed for Express internals (`req.ip`, `req.ips`) and as the limiter's fallback. See [Rate Limiting](README.md#rate-limiting). |
+| `CLIENT_IP_HEADER` | `x-real-ip` | *(Recommended on Railway)* HTTP header whose value is the client's real IP, set by Railway's edge proxy. The rate limiter reads this header directly instead of using Express's `req.ip` hop-counting. Empty by default; allowlisted to `x-real-ip` only. See [Step 9](#step-9-rate-limit--security-verification). |
+| `LOG_CLIENT_IP_HEADER` | `false` | *(Optional, default `false`)* Diagnostic: logs the raw `X-Real-IP` the process receives, so you can confirm the edge **replaces** the header rather than appending to it. At most 10 distinct values per process. Switch on for the Step 9 verification, switch off afterwards. See [Step 9 → Check 0](#check-0--read-the-raw-x-real-ip-out-of-the-railway-logs-do-this-first). |
 
 > [!NOTE]
 > `PORT` is dynamically injected by Railway at runtime; do not define it manually.
@@ -193,67 +195,214 @@ curl.exe -i -X POST "$LIVE_URL/api/v1/orders" `
 
 ## Step 9: Rate Limit & Security Verification
 
-The limiter keys on `req.ip`. Express derives `req.ip` from the socket peer plus the `X-Forwarded-For` header by walking **`TRUST_PROXY_HOPS`** hops back from the app (`app.set('trust proxy', n)` in `src/app.ts`; see [Rate Limiting → Client IP and `TRUST_PROXY_HOPS`](README.md#rate-limiting)).
+The rate limiter keys on the client's IP address.  There are two mechanisms, and this step proves which one is working on **this** deployment:
 
-Railway's edge forwards each request through an internal hop whose address is **not stable between requests**, so the hop count has to match the deployment. If it does not, the budget is charged to a Railway proxy node instead of to the visitor: the flood gets split across several buckets and never trips the limit.
+| Mechanism | How it keys | When to use it |
+| :--- | :--- | :--- |
+| **Hop counting** (default) | Express's `req.ip`, derived from the socket peer + `X-Forwarded-For` by walking `TRUST_PROXY_HOPS` hops back | Platforms with a **documented, stable** proxy chain |
+| **Header** (opt-in) | The value of a platform-set header, read directly | Railway, whose internal mesh makes the hop count unstable |
 
-Run all three checks in order.
+When `CLIENT_IP_HEADER=x-real-ip` is set, the limiter reads the IP from Railway's `X-Real-IP` header directly, bypassing Express's `req.ip` hop-counting.  The header *name* is validated against an allowlist at boot (currently `x-real-ip` only, so `x-forwarded-for` can never be selected); the header *value* is validated with `net.isIP()` and must be a single, trimmed, ≤45-character string with no commas, otherwise it falls back to `req.ip`.
 
-### Check 1 — Parallel flood
+> [!IMPORTANT]
+> **Run Check 0 first.**  The header mechanism is only safe if Railway's edge **replaces** `X-Real-IP` rather than appending to it.  The forged-header tests alone cannot tell those two apart, so the raw header value is read out of the Railway logs and compared with your own public IP.
 
-The flood must be **parallel**. A single sequential loop is not a valid test: it can be spread over several proxy hops and hide a mis-set hop count.
+### Variables for this verification run
+
+Set these on the **ecommerce-api** service in Railway (Variables tab) and **redeploy** — Railway injects variables into the container at start, so a restart is not enough.
+
+| Variable | Value | Why |
+| :--- | :--- | :--- |
+| `NODE_ENV` | `production` | Enables production runtime mode (CORS). Required. |
+| `CLIENT_IP_HEADER` | `x-real-ip` | The mechanism under test. |
+| `LOG_CLIENT_IP_HEADER` | `true` | Turns on the raw-header diagnostic that Check 0 needs. |
+| `TRUST_PROXY_HOPS` | *unset* | Not used while the header mechanism is under test; it is only the fallback. |
+| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | As above — do not change. |
+| `CORS_ORIGIN` | *your consumer origin* | As above — do not change. |
+
+Run the checks in order: **Check 0 → 1 → 2 → 3 → 4**.
+
+### Check 0 — Read the raw `X-Real-IP` out of the Railway logs (do this FIRST)
+
+This is the check that decides whether the header mechanism may be used at all.
+
+**Step 0a — note your own public IP:**
 
 ```powershell
-# Run this in three terminals at the same time (or use one script with parallel requests).
-# -D - dumps the response headers so you can watch RateLimit-Remaining; -o NUL discards the body.
-1..60 | ForEach-Object {
-  curl.exe -s -o NUL -D - -w "`n%{http_code}`n" "https://LIVE_URL_PLACEHOLDER/api/v1/health"
-}
+curl.exe -s https://ifconfig.me
 ```
 
-**Expected:** the first **100** requests return `200`, everything after that returns **`429 Too Many Requests`** with a `Retry-After: 60` header, and the `RateLimit-Remaining` header counts down in a **single** sequence (`99` → `0`) and then stays at `0`.
+Write the value down; call it `MY_IP` (for example `203.0.113.7`).
 
-**Failure signature:** *no `429`s at all*, or a `RateLimit-Remaining` header that shows **two interleaved counters** (for example `99, 98, 97 … 50, 51, 50 … 49, 48 …`). Two counters means the requests are landing in more than one bucket — the limiter is keying on a Railway proxy hop, not on the client. Cross-check by looking for more than one value in the `x-hikari-trace` response header: one value per counter confirms it.
+**Step 0b — send one request with a forged `X-Real-IP`:**
+
+```powershell
+$LIVE_URL = "https://LIVE_URL_PLACEHOLDER"
+
+curl.exe -s -o NUL -w "%{http_code}`n" `
+  -H "X-Real-IP: 99.99.99.99" `
+  "$LIVE_URL/api/v1/health"
+```
+
+**Step 0c — read the log line.**  In Railway, open the **ecommerce-api** service → **Logs** and find the line that starts with `[ratelimit] x-real-ip raw=`:
+
+```
+[ratelimit] x-real-ip raw=203.0.113.7 req.ip=10.0.0.5
+```
+
+Compare the `raw=` value with `MY_IP` and apply the decision table:
+
+| Logged `raw=` value | Meaning | Action |
+| :--- | :--- | :--- |
+| exactly `MY_IP`, **no comma** | Railway's edge **replaces** `X-Real-IP` — the forged value was stripped | ✅ **Keep `CLIENT_IP_HEADER=x-real-ip`.** Continue with Check 1. |
+| `99.99.99.99, <MY_IP>` (a **comma list**) | Railway's edge **appends** to `X-Real-IP` | ❌ **Unset `CLIENT_IP_HEADER`**, set `TRUST_PROXY_HOPS=2` instead, redeploy, and re-run **Check 1**. |
+| `99.99.99.99` (the forged value) | the header is **not overwritten** → spoofable | ❌ **Unset `CLIENT_IP_HEADER`.** Do not use it. |
+
+> [!CAUTION]
+> The middle row is the dangerous one.  If Railway appends, the app receives a comma list, rejects it, falls back to `req.ip` — and the forged-header tests below still answer `429`, **for the wrong reason**.  Only the raw value in the log distinguishes the two.
+
+> [!NOTE]
+> The diagnostic logs at most **10 distinct values per process**, and each value is truncated to 100 characters.  Only `X-Real-IP` and `req.ip` are ever printed — never any other header.  If the log line is missing entirely, the request may have hit a **different Railway instance** than the one you deployed to; send a couple more requests until you see one.
+
+### Check 1 — Parallel flood: prove there is a **single** bucket
+
+The flood must be **parallel**.  A sequential loop can be spread across proxy hops and hide a keying problem.
+
+```powershell
+$LIVE_URL = "https://LIVE_URL_PLACEHOLDER"
+
+# One line per request: the status code and the limiter's own remaining-count
+# header.  The syntax is %header{Name} - note there is NO extra %{ ... }
+# around it, and the closing brace belongs to the header name.
+# %header{} needs curl 7.84+; Windows 10/11 ships curl 8.x.
+# Check with: curl.exe --version
+#
+# The output is captured first so it can be summarised below - do NOT run the
+# flood twice, the second run would start inside an already-exhausted window.
+$out = curl.exe -s -o NUL `
+  -w "%{http_code} %header{RateLimit-Remaining}`n" `
+  --parallel --parallel-max 50 `
+  "$LIVE_URL/api/v1/health?n=[1-300]"
+
+$ok  = @($out | Where-Object { $_ -like "200 *" } | ForEach-Object { ($_ -split " ")[1] })
+$bad = @($out | Where-Object { $_ -like "429 *" })
+
+"200 count      : $($ok.Count)"
+"429 count      : $($bad.Count)"
+"remaining seen : $(($ok | Sort-Object -Unique -Property { [int]$_ }) -join ',')"
+"duplicates     : $(($ok | Group-Object | Where-Object Count -gt 1 | ForEach-Object { "$($_.Name) x$($_.Count)" }) -join ', ')"
+```
+
+**Expected:**
+
+```
+200 count      : 100
+429 count      : 200
+remaining seen : 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99
+duplicates     :
+```
+
+**Why this is the assertion that matters.**  The remaining count is assigned when the request is counted, and with `--parallel-max 50` the first 50 requests are in flight together, so the values arrive in an arbitrary order — the countdown is visible as a **set**, not as a sequence.  The decisive signal is that **`99…0` each appears exactly once**.  Two interleaved countdowns would repeat values and leave gaps.
+
+**Failure signature:** `duplicates` is non-empty, or the `429` count is `0`.  Both mean the requests landed in more than one bucket — the limiter is keying on a Railway proxy hop, not on the client.  Cross-check by looking for more than one value in the `x-hikari-trace` response header: one trace value per counter confirms it.
+
+A run against a limiter that is **keyed on a proxy hop** (two interleaved buckets) produces exactly this, and it is what the live deployment showed before this change:
+
+```
+200 count      : 200
+429 count      : 100
+remaining seen : 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99
+duplicates     : 99 x2, 98 x2, 97 x2, … 1 x2, 0 x2
+```
+
+Every remaining value appears **twice**: two countdowns, two buckets, no limit.  The `duplicates` line is the check — it is empty on a healthy deployment and full on a broken one.
 
 ### Check 2 — Forged `X-Forwarded-For` after the flood
 
 Run this **while the budget from Check 1 is still exhausted** (within the same 60-second window):
 
 ```powershell
-1..10 | ForEach-Object {
+# Must return 429 — a forged XFF must not buy a fresh budget.
+curl.exe -s -o NUL -w "%{http_code}`n" `
+  -H "X-Forwarded-For: 99.99.99.99" `
+  "$LIVE_URL/api/v1/health"
+
+# Rotating the forged value must not help either.
+1..5 | ForEach-Object {
   curl.exe -s -o NUL -w "%{http_code}`n" `
-    -H "X-Forwarded-For: 1.2.3.4" `
-    "https://LIVE_URL_PLACEHOLDER/api/v1/health"
+    -H "X-Forwarded-For: 10.0.0.$_" `
+    "$LIVE_URL/api/v1/health"
 }
 ```
 
-**Expected:** every request returns **`429 Too Many Requests`**. Rotating the forged value must not buy a fresh budget — the limiter must still be charging the same client.
+**Expected:** every line `429`.
 
-**Failure signature:** a `200` means the leftmost, caller-supplied entry is being used as the key, so the caller can rotate it to reset the budget.
+### Check 3 — Forged `X-Real-IP` after the flood
 
-### Check 3 — Phone on mobile data
+Run this **while the budget is still exhausted**:
 
-1. With the budget still exhausted from Check 1, open a browser or terminal on your **smartphone, connected to mobile data (not Wi-Fi)** and visit:
-   `https://LIVE_URL_PLACEHOLDER/api/v1/health`
-2. **Expected:** the phone receives **`200 OK`** (`{"data":{"status":"ok"}}`), proving the rate limit is strictly partitioned per client IP and does not block other users.
+```powershell
+# Must return 429 — the edge should replace X-Real-IP, so a forged value never
+# reaches the app.  If this returns 200, the header is spoofable and
+# CLIENT_IP_HEADER must NOT be used.
+curl.exe -s -o NUL -w "%{http_code}`n" `
+  -H "X-Real-IP: 99.99.99.99" `
+  "$LIVE_URL/api/v1/health"
 
-**Failure signature:** a `429` on the phone means your own client's budget is being shared with unrelated traffic — the limiter is keying on a proxy node, so every client behind that node is charged to the same budget.
+# The same forged value again: a spoofable header keeps answering 200 (a fresh
+# bucket), it never turns into 429.
+1..5 | ForEach-Object {
+  curl.exe -s -o NUL -w "%{http_code}`n" `
+    -H "X-Real-IP: 99.99.99.99" `
+    "$LIVE_URL/api/v1/health"
+}
 
-### If Check 2 or Check 3 fails: set `TRUST_PROXY_HOPS=2`
+# Rotating the forged value must not help either.
+1..5 | ForEach-Object {
+  curl.exe -s -o NUL -w "%{http_code}`n" `
+    -H "X-Real-IP: 10.0.0.$_" `
+    "$LIVE_URL/api/v1/health"
+}
+```
 
-A failure in either check points at the hop count being one too low — the limiter is stopping one hop short of the client and charging a Railway proxy node instead.
+**Expected:** every line `429`.
+
+> [!CAUTION]
+> If any line prints `200`, **stop**: `X-Real-IP` is spoofable on this deployment and `CLIENT_IP_HEADER` must be unset.
+
+> [!NOTE]
+> This check proves that the forged value is **not used as the key**.  It cannot by itself distinguish "the edge replaces the header" from "the edge appends to it" — in the appended case the app sees a comma list, rejects it, falls back to `req.ip`, and still answers `429`.  **Check 0 is what settles that.**
+
+### Check 4 — Second network
+
+After the 60-second rate-limit window resets, open a browser or terminal on your **smartphone connected to mobile data** (not Wi-Fi — a different public IP) and visit:
+
+`https://LIVE_URL_PLACEHOLDER/api/v1/health`
+
+**Expected:** `200 OK` with `{"data":{"status":"ok"}}`.  This confirms the rate limit is per-client-IP, not per-proxy-node or global.
+
+If `429`: the phone's IP may share a budget with your laptop (unlikely on mobile data), or the limiter is keying on a proxy node.  Re-run Check 1 from the phone's network to isolate.
+
+### After the checks — switch the diagnostic off
+
+Once Checks 0–4 have passed, turn the diagnostic **off** again and redeploy:
 
 1. On the **ecommerce-api** service in Railway, open **Variables** and set:
    ```
-   TRUST_PROXY_HOPS=2
+   LOG_CLIENT_IP_HEADER=false
    ```
-2. Redeploy the service (Railway injects variables into the container at start, so a redeploy — not just a restart — is required).
-3. Re-run **Check 1**, **Check 2** and **Check 3** from the top.
+2. Leave `CLIENT_IP_HEADER=x-real-ip` in place (that is the mechanism you just verified).
+3. Redeploy the service.
+4. Re-run **Check 1** once to confirm the limiter still behaves exactly as before the change was made.
 
-`TRUST_PROXY_HOPS=2` makes Express take the **leftmost** `X-Forwarded-For` entry — the address Railway's edge saw — instead of the rightmost, proxy-controlled one. That is the correct value when the deployment's `X-Forwarded-For` carries two entries, and it is the setting the live deployment's two `x-hikari-trace` hop values point to.
+The diagnostic is a temporary verification tool, not a permanent logging setting: it prints client IP addresses into the platform logs.
+
+### If Checks 0–4 all pass
+
+The rate limiter is correctly keying on the client's real IP via `X-Real-IP`.  No further changes are needed.
 
 > [!IMPORTANT]
-> Do **not** raise the hop count above the number of entries the deployment actually produces. Trusting one hop too many hands the key to the leftmost, caller-supplied entry, which a caller can rotate to reset the budget — that is the exact failure Check 2 is designed to catch.
+> Re-run these checks after any Railway infrastructure change (region migration, plan change, custom domain) that might alter the proxy chain.  Railway's overwrite behaviour is documented and confirmed by staff, but is not contractually guaranteed — these checks serve as an ongoing canary.
 
 ---
 

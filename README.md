@@ -4,7 +4,7 @@ E-commerce REST API built with Node.js, Express 4, TypeScript, PostgreSQL (via D
 
 - **Live API URL:** `https://LIVE_URL_PLACEHOLDER`
 - **Consumer App:** `/consumer` (React + Vite + TypeScript)
-- **Status:** API stages 1-9 complete. 119 tests passing. Frozen deterministic seed. Stage 10 consumer app implemented in `/consumer` and verified against the live API (not yet deployed to Vercel).
+- **Status:** API stages 1-9 complete. 149 tests passing. Frozen deterministic seed. Stage 10 consumer app implemented in `/consumer` and verified against the live API (not yet deployed to Vercel).
 
 ---
 
@@ -806,9 +806,9 @@ Rate limiting is enforced by `express-rate-limit` in `src/app.ts`:
     ```
 - **Architectural Placement:** The limiter is mounted **above** `express.json()`. Oversized payloads (`413`) and malformed JSON floods (`400`) are counted against the caller's budget before payload parsing occurs.
 
-### Client IP and `TRUST_PROXY_HOPS`
+### Client IP, `CLIENT_IP_HEADER` and `TRUST_PROXY_HOPS`
 
-The limiter keys on `req.ip`. Express derives `req.ip` from the socket peer plus the `X-Forwarded-For` header by walking **one hop per trusted proxy** back from the app (`app.set('trust proxy', n)` in `src/app.ts`), and `n` is read from the environment as **`TRUST_PROXY_HOPS`** (integer `0`–`5`, default `1`) and applied at boot.
+By default the limiter keys on `req.ip`.  Express derives `req.ip` from the socket peer plus the `X-Forwarded-For` header by walking **one hop per trusted proxy** back from the app (`app.set('trust proxy', n)` in `src/app.ts`), and `n` is read from the environment as **`TRUST_PROXY_HOPS`** (integer `0`–`5`, default `1`) and applied at boot.
 
 | `TRUST_PROXY_HOPS` | `X-Forwarded-For: a, b` | `req.ip` / limiter key | Meaning |
 | :--- | :--- | :--- | :--- |
@@ -817,9 +817,73 @@ The limiter keys on `req.ip`. Express derives `req.ip` from the socket peer plus
 
 Trusting **too few** hops keys the limiter on a proxy node rather than the visitor, so every client behind that node shares one budget. Trusting **too many** hops lets the caller choose the leftmost, caller-supplied entry and rotate it to reset the budget.
 
-Railway's edge terminates TLS and forwards the request to the deployment, and Railway does not publish a stable proxy CIDR range, so the hop count is deployment-specific. Verify it with the live checks in [DEPLOY.md → Step 9: Rate Limit & Security Verification](DEPLOY.md#step-9-rate-limit--security-verification) and set the variable to `2` if the live deployment's `X-Forwarded-For` carries two entries.
+#### Why hop-counting is not enough on Railway
 
-Both hop counts are covered by `src/trust-proxy.test.ts`.
+Railway's edge terminates TLS and forwards the request through an **internal mesh of proxies**.  The edge sets `X-Forwarded-For` to the client's address, and the internal hops then **append** their own addresses, so the header the app finally sees carries a **variable number of entries**.  The live deployment proved this: a 160-request flood produced **no** `429`s and `RateLimit-Remaining` counted down in **two interleaved sequences** that matched **two distinct `x-hikari-trace` values** — the requests were landing on two different internal hops, so the budget was charged to Railway's infrastructure instead of to the visitor.
+
+Because the number of internal hops is not guaranteed to be stable, a fixed `TRUST_PROXY_HOPS` cannot be relied on: one hop too few charges a proxy node, one hop too many hands the key to the caller-supplied leftmost entry.
+
+#### The opt-in header mechanism
+
+To remove the hop count from the equation, the rate limiter supports an **opt-in** `CLIENT_IP_HEADER` environment variable.  It is **empty by default**, so local development and every non-Railway host keep keying on `req.ip` and never trust a caller-supplied header.
+
+The header *name* is validated against an **explicit allowlist** — currently `x-real-ip` only — so an operator cannot accidentally trust an arbitrary caller-supplied header.  Setting it to a non-allowlisted name (e.g. `x-forwarded-for`) causes the app to **refuse to start** rather than silently trusting it.
+
+When set, the `keyGenerator` reads the client IP directly from that header, bypassing Express's `req.ip` hop-counting entirely.  The header *value* is validated strictly:
+
+- Must be a single value (no commas).
+- Trimmed, at most 45 characters (a safety bound — the longest possible IPv6 literal is 39 characters).
+- Must pass `net.isIP()` (rejects non-IP strings, ports, brackets, garbage).
+- If missing, empty, multi-valued, oversized, or not a valid IP → **falls back to `req.ip`** (never a shared constant like `"unknown"`).
+
+#### Verifying that the platform really replaces the header
+
+Railway's staff state that the edge **replaces** (overwrites, not appends) `X-Forwarded-For` and `X-Real-IP`.  That is the behaviour the header mechanism depends on, so it has to be **verified on the deployment you are actually running**, not assumed.
+
+`LOG_CLIENT_IP_HEADER` (boolean, default `false`) is a small diagnostic that makes that possible.  When it is on, the app logs the **raw** `X-Real-IP` value it received next to the address Express resolved on its own:
+
+```
+[ratelimit] x-real-ip raw=203.0.113.7 req.ip=203.0.113.9
+```
+
+The diagnostic reads the header **even when `CLIENT_IP_HEADER` is unset**, so the header can be inspected *before* anything is switched on.  It prints nothing but that header and `req.ip`, truncates each value to 100 characters, and logs **at most 10 distinct values per process**, so a caller cannot flood the log.
+
+The three possible outcomes, and what each one means:
+
+| Logged `raw=` value | Meaning | Action |
+| :--- | :--- | :--- |
+| exactly your public IP, no comma | the edge **replaces** the header | safe → keep `CLIENT_IP_HEADER=x-real-ip` |
+| `<forged>, <your IP>` (a comma list) | the edge **appends** to the header | **do not** enable the header; use `TRUST_PROXY_HOPS=2` and re-verify |
+| your forged value | the header is **not overwritten** → spoofable | **do not** enable the header |
+
+This matters because a forged-header test **cannot** tell "replaced" and "appended" apart on its own: in the appended case the app sees a comma list, rejects it, falls back to `req.ip`, and still answers `429` — for the wrong reason.  See [DEPLOY.md → Step 9](DEPLOY.md#step-9-rate-limit--security-verification) for the full procedure.
+
+#### Two strategies for different platforms
+
+- **Railway (header-based):** Set `CLIENT_IP_HEADER=x-real-ip`.  The limiter reads the client's address straight from the header and no longer depends on how many internal hops the request crossed.  Run the Step 9 checks — including the raw-header inspection — before trusting it.
+- **Other platforms (hop-count-based):** Use `TRUST_PROXY_HOPS` alone.  Match the hop count to the platform's documented, stable proxy chain.  `CLIENT_IP_HEADER` stays empty.
+
+`TRUST_PROXY_HOPS` is **kept** even when `CLIENT_IP_HEADER` is set: it still controls Express's `req.ip` for everything else (logging, `req.ips`), and it is what the limiter falls back to if the header is missing or invalid.
+
+#### Known limitation: IPv6 addresses are not grouped into a subnet
+
+The key is the **full** IP address.  For IPv4 that is exactly right.  For IPv6 it is not: an IPv6 subscriber is normally given a routed `/64`, which contains roughly 2^64 addresses, so a client can rotate addresses **inside its own prefix** and receive a fresh budget for each one.  The limiter can therefore be bypassed by an IPv6 client that rotates its address.
+
+`express-rate-limit` **7.5.1** (the version pinned here) has no helper for this: its default key generator returns `req.ip` unchanged and the package exports no IPv6 helper.  The helper — `ipKeyGenerator(ip, ipv6Subnet?)`, which reduces an IPv6 address to its `/56` prefix by default — was introduced in **`express-rate-limit` 8.0.0**, and 7.5.1 is the last release of the 7.x line, so **no same-major upgrade can fix this**.  Moving to 8.x would be a major-version upgrade of the rate limiter (8.x also changes `max` → `limit`, drops `onLimitReached`, and adds an `ERR_ERL_KEY_GEN_IPV6` validation that requires the custom key generator to call `ipKeyGenerator`), so it has deliberately **not** been done here.
+
+The mitigation, when the platform is upgraded to 8.x, is to route both the header value and the `req.ip` fallback through the library helper:
+
+```ts
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
+// ...
+keyGenerator: (req) => ipKeyGenerator(resolveClientIp(req), 64),
+```
+
+Until then, treat the limiter as a **guardrail rather than an enforcement mechanism** for IPv6 clients, and consider a platform-level control (Railway WAF / firewall rules) if that matters.
+
+Verify the live deployment with the checks in [DEPLOY.md → Step 9: Rate Limit & Security Verification](DEPLOY.md#step-9-rate-limit--security-verification).
+
+All mechanisms (`CLIENT_IP_HEADER` on/off and config allowlist, the `LOG_CLIENT_IP_HEADER` diagnostic, `TRUST_PROXY_HOPS` hop counts, and forged-header protection) are covered by `src/client-ip-header.test.ts` and `src/trust-proxy.test.ts`.
 
 ---
 
@@ -936,7 +1000,7 @@ npm test
 - Setup creates `ecommerce_test`, deploys all migrations, and runs the frozen seed against it.
 - Teardown asserts the database name is strictly `ecommerce_test` before executing `DROP DATABASE ... WITH (FORCE)`.
 - **Zero Test Contamination:** Your local `ecommerce` development database is never touched or mutated by test runs.
-- **Suite Results:** 119 tests passing across 9 test files (`orders.write`, `products`, `categories`, `query-validation`, `orders`, `customers`, `rate-limit-body`, `app`, `rate-limit`).
+- **Suite Results:** 149 tests passing across 11 test files (`orders.write`, `products`, `categories`, `query-validation`, `orders`, `customers`, `rate-limit-body`, `app`, `rate-limit`, `trust-proxy`, `client-ip-header`).
 
 ---
 
@@ -952,7 +1016,9 @@ The application is deployed across two platforms: the backend API and PostgreSQL
 | **Railway (API)** | `NODE_ENV` | Configuration | `production` (**required** — see [CORS Behaviour](#cors-behaviour)) |
 | **Railway (API)** | `PORT` | Dynamic | Injected automatically by Railway runtime |
 | **Railway (API)** | `CORS_ORIGIN` | Configuration | Optional comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically. See [CORS Behaviour](#cors-behaviour) for the full rule set. |
-| **Railway (API)** | `TRUST_PROXY_HOPS` | Configuration | `1` (optional) — number of reverse-proxy hops Express trusts when deriving `req.ip`, which is the rate limiter key. See [Rate Limiting](#rate-limiting). |
+| **Railway (API)** | `TRUST_PROXY_HOPS` | Configuration | `1` (optional) — number of reverse-proxy hops Express trusts when deriving `req.ip`. Used by the limiter as the fallback when `CLIENT_IP_HEADER` is unset or its value is rejected. See [Rate Limiting](#rate-limiting). |
+| **Railway (API)** | `CLIENT_IP_HEADER` | Configuration | `x-real-ip` (optional) — HTTP header whose value is the client's real IP, set by the platform edge proxy. Validated against an allowlist (currently `x-real-ip` only); empty by default. When set, the rate limiter reads this header directly instead of using `req.ip`. See [Rate Limiting](#rate-limiting). |
+| **Railway (API)** | `LOG_CLIENT_IP_HEADER` | Configuration | `false` (optional) — diagnostic that logs the raw `X-Real-IP` the process receives, so the edge's "replaces vs appends" behaviour can be verified. At most 10 distinct values per process, each truncated to 100 characters. Switch on for the Step 9 verification and off again afterwards. See [Rate Limiting](#rate-limiting). |
 | **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://LIVE_URL_PLACEHOLDER` (public API origin, no trailing slash; the consumer appends `/api/v1` itself). Baked in at consumer build time. |
 
 ### Deployment Overview
