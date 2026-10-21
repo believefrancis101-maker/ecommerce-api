@@ -934,7 +934,7 @@ The application is deployed across two platforms: the backend API and PostgreSQL
 | Platform | Variable | Type | Description |
 | :--- | :--- | :--- | :--- |
 | **Railway (API)** | `DATABASE_URL` | Private Reference | `${{Postgres.DATABASE_URL}}` (connects over internal private mesh) |
-| **Railway (API)** | `NODE_ENV` | Configuration | `production` |
+| **Railway (API)** | `NODE_ENV` | Configuration | `production` (**required** — see [CORS Behaviour](#cors-behaviour)) |
 | **Railway (API)** | `PORT` | Dynamic | Injected automatically by Railway runtime |
 | **Railway (API)** | `CORS_ORIGIN` | Configuration | Optional comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically. See [CORS Behaviour](#cors-behaviour) for the full rule set. |
 | **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://LIVE_URL_PLACEHOLDER` (public API origin, no trailing slash; the consumer appends `/api/v1` itself). Baked in at consumer build time. |
@@ -978,6 +978,19 @@ Live probe against the deployed API (`GET /api/v1/products?limit=1`, `Origin` he
 
 Allowed responses carry `Vary: Origin, accept-encoding`; refused responses carry no `Access-Control-Allow-Origin`.
 
+> [!NOTE]
+> This table was captured against the deployment as it was running at the time. The three local-origin rows (`http://localhost:5173`, `http://localhost:9999`, `http://127.0.0.1:5173`) are **rule 4**, and rule 4 is the **only** rule that depends on `NODE_ENV`. They read "allowed" while the deployment runs with `NODE_ENV !== 'production'` and flip to "refused" once `NODE_ENV=production` is actually in effect — re-run the probe after changing that variable to refresh them.
+
+To check whether `NODE_ENV=production` is in effect, use a local origin, which is the only probe that distinguishes the two modes:
+
+```bash
+curl -i -H "Origin: http://localhost:5173" "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=1"
+# NODE_ENV != 'production' (rule 4 active):  Access-Control-Allow-Origin: http://localhost:5173
+# NODE_ENV == 'production'  (rule 4 skipped): no Access-Control-Allow-Origin header
+```
+
+An origin such as `https://example.com` is refused by rule 5 in **both** modes, so it returns no `Access-Control-Allow-Origin` either way and cannot confirm that the variable was applied.
+
 ---
 
 ## Design Decisions
@@ -1008,6 +1021,8 @@ Post-deployment evidence checklist for graded assessment submission:
 
   > [!WARNING]
   > The consumer screenshots below are **local preview captures** (the production build served from `localhost`), taken while verifying the app against the live API. They are **to be replaced by screenshots taken from the deployed Vercel URL** once the consumer is deployed.
+  >
+  > That replacement stops being optional once `NODE_ENV=production` is in effect. Rule 4 is skipped, so the API stops sending `Access-Control-Allow-Origin` for `http://localhost:<port>`, and a consumer served from `localhost` can no longer read the live API from a browser — the request is blocked by CORS and the app surfaces it as "Cannot reach the API". In production mode the only browser origins that can call the API are `*.vercel.app` subdomains and the exact origins listed in `CORS_ORIGIN`.
 
   Consumer states, each captured from the running app against the live API:
 

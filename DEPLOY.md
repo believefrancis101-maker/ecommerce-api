@@ -231,12 +231,18 @@ Rule 4 is skipped entirely, so local development origins are refused. The allowe
 - the **exact** origins listed in `CORS_ORIGIN`,
 - any **`*.vercel.app` subdomain**.
 
-`NODE_ENV` defaults to `development` when the variable is unset (`src/config.ts`), so a deployment that omits `NODE_ENV=production` keeps allowing local origins. Verify the live deployment with a single request:
+`NODE_ENV` defaults to `development` when the variable is unset (`src/config.ts`), so a deployment that omits `NODE_ENV=production` keeps allowing local origins.
+
+Verify the live deployment with a **single discriminating request**. Only rule 4 depends on `NODE_ENV`, so the probe must use a local origin:
 
 ```bash
-curl -i -H "Origin: https://example.com" "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=1"
-# expected in production: no Access-Control-Allow-Origin header
+curl -i -H "Origin: http://localhost:5173" "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=1"
+# NODE_ENV != 'production' (rule 4 active):  Access-Control-Allow-Origin: http://localhost:5173
+# NODE_ENV == 'production'  (rule 4 skipped): no Access-Control-Allow-Origin header
 ```
+
+> [!IMPORTANT]
+> `Origin: https://example.com` is **not** a valid check. Rule 5 refuses it in both modes, so it comes back without an `Access-Control-Allow-Origin` header either way and cannot tell you whether `NODE_ENV=production` is actually in effect. The `http://localhost[:port]` origin is the only probe that distinguishes the two modes — use it every time you change this variable.
 
 ---
 

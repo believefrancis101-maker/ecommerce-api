@@ -83,6 +83,18 @@ whether the responses reach it. The API (`src/app.ts` in the parent project) all
 Anything else gets no `Access-Control-Allow-Origin` header and the browser blocks the response.
 Rule 3 is what makes a Vercel deployment work without touching the Railway configuration.
 
+### Running this app locally against the live API
+
+Rule 4 is the only rule that depends on `NODE_ENV`. While the API runs with `NODE_ENV !== 'production'`,
+a consumer served from `http://localhost:5173` (or `:4173`) is allowed by rule 4 and can read the live
+API from the browser.
+
+Once the API runs with `NODE_ENV=production`, rule 4 is skipped and that request is blocked by CORS —
+the app renders its "Cannot reach the API" state even though the API itself is healthy. To keep a local
+preview working in production mode, the API's `CORS_ORIGIN` variable must list the exact local origin
+(e.g. `http://localhost:5173`); the match is exact string equality, so a trailing slash or a different
+port will not match. Otherwise, verify the consumer from its deployed `*.vercel.app` URL.
+
 ## Source layout
 
 ```
