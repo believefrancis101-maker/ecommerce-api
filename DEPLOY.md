@@ -2,6 +2,14 @@
 
 This guide covers deploying the **ecommerce-api** to **Railway** (Express API + PostgreSQL) and preparing it for connection with the **React + Vite consumer** on **Vercel**.
 
+**Current deployment:**
+
+| Component | Platform | URL |
+| :--- | :--- | :--- |
+| API | Railway | `https://ecommerce-api-production-3c59.up.railway.app` |
+| Consumer | Vercel | `https://ecommerce-api-eight-gamma.vercel.app/` |
+| Repository | GitHub | `https://github.com/believefrancis101-maker/ecommerce-api` |
+
 ---
 
 ## Architecture & Principles
@@ -40,7 +48,7 @@ Select the **ecommerce-api** service, navigate to the **Variables** tab, and con
 | :--- | :--- | :--- |
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Cross-service reference resolving to the private internal database network. |
 | `NODE_ENV` | `production` | Enables production runtime mode. **Must be set**, otherwise it defaults to `development` and local development origins stay CORS-allowed. See [CORS Behaviour](#cors-behaviour). |
-| `CORS_ORIGIN` | `https://your-consumer.vercel.app` | *(Optional / set after consumer deployment)* Comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically, so this is only needed for a custom domain. |
+| `CORS_ORIGIN` | `https://ecommerce-api-eight-gamma.vercel.app` | *(Optional / set after consumer deployment)* Comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically, so this is only needed for a custom domain. |
 | `TRUST_PROXY_HOPS` | `1` | *(Optional, default `1`)* Number of reverse-proxy hops Express trusts when deriving `req.ip`. Still needed for Express internals (`req.ip`, `req.ips`) and as the limiter's fallback. See [Rate Limiting](README.md#rate-limiting). |
 | `CLIENT_IP_HEADER` | `x-real-ip` | *(Recommended on Railway)* HTTP header whose value is the client's real IP, set by Railway's edge proxy. The rate limiter reads this header directly instead of using Express's `req.ip` hop-counting. Empty by default; allowlisted to `x-real-ip` only. See [Step 9](#step-9-rate-limit--security-verification). |
 | `LOG_CLIENT_IP_HEADER` | `false` | *(Optional, default `false`)* Diagnostic: logs the raw `X-Real-IP` the process receives, so you can confirm the edge **replaces** the header rather than appending to it. At most 10 distinct values per process. Switch on for the Step 9 verification, switch off afterwards. See [Step 9 → Check 0](#check-0--read-the-raw-x-real-ip-out-of-the-railway-logs-do-this-first). |
@@ -68,8 +76,8 @@ Railway will automatically detect `railway.json` in the root of the repository. 
 
 1. Under the **ecommerce-api** service, navigate to **Settings** → **Networking** → **Public Networking**.
 2. Click **Generate Domain**.
-3. Copy the assigned URL (e.g., `https://ecommerce-api-production-xxxx.up.railway.app`).
-   - This URL replaces `https://LIVE_URL_PLACEHOLDER` in documentation and consumer configuration.
+3. Copy the assigned URL — for this deployment it is `https://ecommerce-api-production-3c59.up.railway.app`.
+   - This is the URL used throughout this runbook and in the documentation.
 
 ---
 
@@ -163,10 +171,10 @@ SELECT md5(string_agg(id::text, ',' ORDER BY id)) FROM "Product";
 
 ## Step 8: Production Smoke-Test Suite
 
-Run these smoke tests from PowerShell against your live URL (`$LIVE_URL = "https://your-app.up.railway.app"`):
+Run these smoke tests from PowerShell against your live URL (`$LIVE_URL = "https://ecommerce-api-production-3c59.up.railway.app"`):
 
 ```powershell
-$LIVE_URL = "https://LIVE_URL_PLACEHOLDER"
+$LIVE_URL = "https://ecommerce-api-production-3c59.up.railway.app"
 
 # 1. Health check (Expected: 200 OK, {"data":{"status":"ok"}})
 curl.exe -i "$LIVE_URL/api/v1/health"
@@ -237,7 +245,7 @@ Write the value down; call it `MY_IP` (for example `203.0.113.7`).
 **Step 0b — send one request with a forged `X-Real-IP`:**
 
 ```powershell
-$LIVE_URL = "https://LIVE_URL_PLACEHOLDER"
+$LIVE_URL = "https://ecommerce-api-production-3c59.up.railway.app"
 
 curl.exe -s -o NUL -w "%{http_code}`n" `
   -H "X-Real-IP: 99.99.99.99" `
@@ -269,7 +277,7 @@ Compare the `raw=` value with `MY_IP` and apply the decision table:
 The flood must be **parallel**.  A sequential loop can be spread across proxy hops and hide a keying problem.
 
 ```powershell
-$LIVE_URL = "https://LIVE_URL_PLACEHOLDER"
+$LIVE_URL = "https://ecommerce-api-production-3c59.up.railway.app"
 
 # One line per request: the status code and the limiter's own remaining-count
 # header.  The syntax is %header{Name} - note there is NO extra %{ ... }
@@ -377,7 +385,7 @@ curl.exe -s -o NUL -w "%{http_code}`n" `
 
 After the 60-second rate-limit window resets, open a browser or terminal on your **smartphone connected to mobile data** (not Wi-Fi — a different public IP) and visit:
 
-`https://LIVE_URL_PLACEHOLDER/api/v1/health`
+`https://ecommerce-api-production-3c59.up.railway.app/api/v1/health`
 
 **Expected:** `200 OK` with `{"data":{"status":"ok"}}`.  This confirms the rate limit is per-client-IP, not per-proxy-node or global.
 
@@ -431,7 +439,7 @@ Rule 4 is skipped entirely, so local development origins are refused. The allowe
 Verify the live deployment with a **single discriminating request**. Only rule 4 depends on `NODE_ENV`, so the probe must use a local origin:
 
 ```bash
-curl -i -H "Origin: http://localhost:5173" "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=1"
+curl -i -H "Origin: http://localhost:5173" "https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=1"
 # NODE_ENV != 'production' (rule 4 active):  Access-Control-Allow-Origin: http://localhost:5173
 # NODE_ENV == 'production'  (rule 4 skipped): no Access-Control-Allow-Origin header
 ```
@@ -475,10 +483,10 @@ In **Settings** → **Environment Variables**, add:
 
 | Variable | Value | Environments |
 | :--- | :--- | :--- |
-| `VITE_API_URL` | `https://LIVE_URL_PLACEHOLDER` | Production, Preview, Development |
+| `VITE_API_URL` | `https://ecommerce-api-production-3c59.up.railway.app` | Production, Preview, Development |
 
 - Use the **public API origin**: no trailing slash, and **without** `/api/v1`. The consumer appends `/api/v1/...` to the value itself.
-- The same variable is read locally from `consumer/.env.local` (gitignored). `consumer/.env.example` carries the placeholder.
+- The same variable is read locally from `consumer/.env.local` (gitignored). `consumer/.env.example` carries the same value for reference.
 - The app refuses to start against anything that is not an **absolute `https:` URL with a non-empty hostname**: if the variable is missing, empty, unparseable, plain `http:` or hostless, the page renders a configuration error and issues **no requests**.
 
 > [!WARNING]
@@ -488,21 +496,55 @@ In **Settings** → **Environment Variables**, add:
 
 1. Click **Deploy**.
 2. Wait for the build to finish. The log should show `vite v… building for production…` followed by `✓ built in …`.
-3. Open the generated URL (`https://<project>-<hash>.vercel.app`). The catalog renders and the first request goes to `https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=12&sort=name&order=asc`.
+3. Open the generated URL (`https://<project>-<hash>.vercel.app`; for this deployment: `https://ecommerce-api-eight-gamma.vercel.app/`). The catalog renders and the first request goes to `https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=12&sort=name&order=asc`.
 
 ### 5. Confirm in the browser that requests hit the live API and no CORS error occurs
 
 1. Open the deployed URL, open **DevTools** → **Network** tab, and reload the page.
 2. Filter the list by **Fetch/XHR** to hide static assets.
 3. **Confirm the target host.** The `products` and `categories` requests show a `Request URL` of
-   `https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=12&sort=name&order=asc`.
+   `https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=12&sort=name&order=asc`.
    The host is the Railway API — never a local address.
 4. **Confirm the response.** Select the `products` request → **Response** tab shows `{"data":[…],"meta":{"total":400,…}}`.
 5. **Confirm CORS.** Select the same request → **Response Headers** shows
-   `access-control-allow-origin: https://<your-project>.vercel.app`.
+   `access-control-allow-origin: https://ecommerce-api-eight-gamma.vercel.app`.
    A `*.vercel.app` subdomain is allowed by rule 3 of [CORS Behaviour](#cors-behaviour), so no extra Railway configuration is needed for a Vercel-hosted consumer. The **Console** tab must stay free of `Access to fetch … has been blocked by CORS policy`.
 6. **Confirm the paging.** Click **Next**: a second `products` request appears whose `Request URL` contains `cursor=…` and whose `Response` shows the next 12 products.
 
 ### 6. Optional: custom domain
 
 If you point a custom domain at the consumer, add its origin to the API's `CORS_ORIGIN` variable on Railway (comma-separated), then redeploy the API. `*.vercel.app` origins are already permitted automatically.
+
+---
+
+## Deployed Consumer — Verified Record
+
+The consumer **is deployed** and live at **`https://ecommerce-api-eight-gamma.vercel.app/`**. This section records what was actually verified, so a later operator can tell a real deployment from a runbook.
+
+| Item | Value |
+| :--- | :--- |
+| Deployed URL | `https://ecommerce-api-eight-gamma.vercel.app/` |
+| `VITE_API_URL` baked into the build | `https://ecommerce-api-production-3c59.up.railway.app` |
+| Served `index.html` | `<title>ecommerce-api - Live Product Catalog</title>`, `<div id="root">` |
+| Response headers | `Server: Vercel`, `X-Vercel-Id: …`, `Strict-Transport-Security` |
+
+**The deployed build is byte-identical to a local `npm run build` of `consumer/` at this commit.** Because Vite inlines `VITE_API_URL` into the bundle, an identical content hash proves the deployment was built from this source *and* targets the live API origin:
+
+| Asset | SHA-256 (deployed = local build) |
+| :--- | :--- |
+| `assets/index-7igqbLHZ.js` | `2691707183C3EF22C703EEEEBB0FE84206B6582A3BEDF43261AAFF62FB764468` |
+| `assets/index-BFtSHkXy.css` | `62576107B5F3913A74AD8BE1A7BBDE82AF2D49640E38A7E86F00274AD299265C` |
+| `favicon.svg` | `6E667EAE8F523F6ABCA0498A95EB8DB0557CCAB4ECA98D4CE719CF3A6E20CDA2` |
+
+**The deployed bundle contains exactly one API URL** — `https://ecommerce-api-production-3c59.up.railway.app` — and **no** `localhost` or `127.0.0.1` reference.
+
+**CORS is confirmed for that origin** (rule 3 of [CORS Behaviour](#cors-behaviour), `*.vercel.app`):
+
+| Request | Result |
+| :--- | :--- |
+| `OPTIONS /api/v1/products?limit=1` with `Origin: https://ecommerce-api-eight-gamma.vercel.app` | `204 No Content`, `access-control-allow-origin: https://ecommerce-api-eight-gamma.vercel.app` |
+| `GET /api/v1/products?limit=1` with the same `Origin` | `200 OK`, same `access-control-allow-origin` |
+| `GET /api/v1/products?limit=1` with `Origin: https://evil.example.com` | `200 OK`, **no** `access-control-allow-origin` → the browser blocks it |
+
+> [!NOTE]
+> A **browser** DevTools → Network capture from the deployed URL has **not** been recorded as evidence; the rows above are server-side HTTP checks plus inspection of the deployed bundle. To close that gap, follow step 5 above in a browser and save the screenshot to `docs/evidence/consumer-app.png`.

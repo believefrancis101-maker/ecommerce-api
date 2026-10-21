@@ -2,9 +2,10 @@
 
 E-commerce REST API built with Node.js, Express 4, TypeScript, PostgreSQL (via Docker), and Prisma 6.
 
-- **Live API URL:** `https://LIVE_URL_PLACEHOLDER`
-- **Consumer App:** `/consumer` (React + Vite + TypeScript)
-- **Status:** API stages 1-9 complete. 149 tests passing. Frozen deterministic seed. Stage 10 consumer app implemented in `/consumer` and verified against the live API (not yet deployed to Vercel).
+- **Live API URL:** `https://ecommerce-api-production-3c59.up.railway.app`
+- **Deployed Consumer App:** `https://ecommerce-api-eight-gamma.vercel.app/` (source in `/consumer` — React + Vite + TypeScript)
+- **Repository:** `https://github.com/believefrancis101-maker/ecommerce-api`
+- **Status:** API stages 1-9 complete. 149 tests passing. Frozen deterministic seed. Stage 10 consumer app implemented in `/consumer`, **deployed to Vercel** at the URL above, and verified against the live API.
 
 ---
 
@@ -22,7 +23,7 @@ E-commerce REST API built with Node.js, Express 4, TypeScript, PostgreSQL (via D
 10. [Deployment](#deployment)
 11. [Design Decisions](#design-decisions)
 12. [Evidence](#evidence)
-13. [Live URL Placeholder Occurrences](#live-url-placeholder-occurrences)
+13. [Deployment URLs](#deployment-urls)
 
 ---
 
@@ -32,7 +33,7 @@ Prerequisites: Node.js 22+, npm, and Docker.
 
 ```bash
 # 1. Clone and enter repository
-git clone https://github.com/example/ecommerce-api.git
+git clone https://github.com/believefrancis101-maker/ecommerce-api.git
 cd ecommerce-api
 
 # 2. Start PostgreSQL in Docker
@@ -153,6 +154,35 @@ erDiagram
 | `quantity` | `Integer` | Yes | Count ordered; CHECK `quantity >= 1`, max 1000 |
 | `unitPriceMinor` | `Integer` | Yes | Unit price in kobo copied from product at order time; CHECK `unitPriceMinor >= 0` |
 
+### Seed Data & Determinism
+
+The dataset is produced by `prisma/seed.ts` and is **frozen** — once it has been seeded into production, the generation logic must not change, because changing it produces different ids and a second dataset next to the first.
+
+| Resource | Rows | Kind |
+| :--- | ---: | :--- |
+| `Category` | **20** | A **small fixed reference set** — a hard-coded list of 20 real store categories. Its length *is* the count (no separate constant that could drift). |
+| `Product` | **400** | A **few hundred** main-resource rows, distributed round-robin so every category has stock. |
+| `Customer` | **300** | A **few hundred** main-resource rows. |
+| `Order` | **500** | A **few hundred** main-resource rows. |
+| `OrderItem` | **1513** | Emergent: 1–5 distinct products per order. |
+
+So the shape is deliberate: **categories are a small reference set** (a lookup table), while **products, customers and orders are the few-hundred-row main resources** the pagination, filtering and sorting features are exercised against.
+
+**Repeatability is guaranteed, not hoped for:**
+
+- `faker.seed(42)` fixes the random stream, so every run generates byte-for-byte the same data.
+- Timestamps do not depend on when the script runs: order dates come from a fixed window, and every seeded row carries a fixed `createdAt`.
+- Rows are inserted with `skipDuplicates: true`, so re-running the script is idempotent — it inserts 0 rows the second time and the before/after count tables are identical.
+- The seed refuses to run against a non-local database unless `CONFIRM_PRODUCTION_SEED=yes` is set explicitly, and it prints the masked host name when it does.
+- **Proof of determinism:** the product ids can be checksummed, and the checksum is stable across a fresh clone, the local development database and production:
+  ```sql
+  SELECT md5(string_agg(id::text, ',' ORDER BY id)) FROM "Product";
+  -- 6e893584d823dec20fbc918bb310d4e6
+  ```
+  That digest covers **all** 400 product ids, ascending by id, comma-joined with no spaces, MD5 of the UTF-8 string.
+
+Run it with `npx prisma db seed` (see [Running Locally from a Fresh Clone](#running-locally-from-a-fresh-clone) for the full sequence).
+
 ---
 
 ## Endpoint Reference
@@ -162,7 +192,7 @@ All endpoints are mounted under `/api/v1`.
 > [!NOTE]
 > **PowerShell Users:** Use `curl.exe` instead of `curl` (which is aliased to `Invoke-WebRequest`). For JSON request bodies, write the payload to a `.json` file and pass `--data "@body.json"` to prevent PowerShell from stripping quotes.
 
-Every example below targets `https://LIVE_URL_PLACEHOLDER`. Collection outputs use `limit=2` and are shortened for brevity.
+Every example below targets `https://ecommerce-api-production-3c59.up.railway.app`. Collection outputs use `limit=2` and are shortened for brevity.
 
 ---
 
@@ -174,7 +204,7 @@ Returns server operational status.
 - **Query Parameters:** None
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/health"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/health"
   ```
 - **Response (`200 OK`):**
   ```json
@@ -201,7 +231,7 @@ List categories with pagination, sorting, and search filters.
   - `slug` (`string`, optional): Exact lowercase slug match.
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/categories?limit=2"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/categories?limit=2"
   ```
 - **Response (`200 OK`, shortened):**
   ```json
@@ -237,7 +267,7 @@ Retrieve a single category by UUID.
 - **Query Parameters:** None
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/categories/fd46d528-eb91-49f2-a8eb-bb54ccde88ca"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/categories/fd46d528-eb91-49f2-a8eb-bb54ccde88ca"
   ```
 - **Response (`200 OK`):**
   ```json
@@ -266,7 +296,7 @@ List all products belonging to a specific category.
   - `inStock` (`string`, optional): `true`, `false`, `1`, or `0`.
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/categories/fd46d528-eb91-49f2-a8eb-bb54ccde88ca/products?limit=2"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/categories/fd46d528-eb91-49f2-a8eb-bb54ccde88ca/products?limit=2"
   ```
 - **Response (`200 OK`, shortened):**
   ```json
@@ -317,7 +347,7 @@ List products across all categories with dual pagination (offset or forward curs
   - `inStock` (`string`, optional): `true`, `false`, `1`, or `0`.
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=2"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=2"
   ```
 - **Response (`200 OK`, shortened):**
   ```json
@@ -370,7 +400,7 @@ Retrieve a single product by UUID.
 - **Query Parameters:** None
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products/6dc892dc-a7fe-4a59-8964-6964c815ec5f"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/products/6dc892dc-a7fe-4a59-8964-6964c815ec5f"
   ```
 - **Response (`200 OK`):**
   ```json
@@ -408,7 +438,7 @@ List customers with pagination, sorting, and name/email search filters.
   - `email` (`string`, optional): Case-insensitive substring match.
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/customers?limit=2"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/customers?limit=2"
   ```
 - **Response (`200 OK`, shortened):**
   ```json
@@ -444,7 +474,7 @@ Retrieve a single customer by UUID.
 - **Query Parameters:** None
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/customers/ae3a192b-4792-4b4a-a2b2-63b4ee3916ba"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/customers/ae3a192b-4792-4b4a-a2b2-63b4ee3916ba"
   ```
 - **Response (`200 OK`):**
   ```json
@@ -474,7 +504,7 @@ List orders with status and customer filters. Totals are computed across the pag
   - `customerId` (`UUID`, optional): Valid customer UUID.
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/orders?limit=2"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/orders?limit=2"
   ```
 - **Response (`200 OK`, shortened):**
   ```json
@@ -516,7 +546,7 @@ Retrieve full order details including line items and dynamically computed `total
 - **Query Parameters:** None
 - **cURL:**
   ```bash
-  curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/orders/ef6ac626-cc32-4e0b-b0de-41746a35ca5a"
+  curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/orders/ef6ac626-cc32-4e0b-b0de-41746a35ca5a"
   ```
 - **Response (`200 OK`):**
   ```json
@@ -553,7 +583,7 @@ Create an order and its items in a single atomic `$transaction`. Copies `unitPri
   - Schema is `.strict()`: extra fields trigger `422`.
 - **cURL:**
   ```bash
-  curl -i -X POST "https://LIVE_URL_PLACEHOLDER/api/v1/orders" \
+  curl -i -X POST "https://ecommerce-api-production-3c59.up.railway.app/api/v1/orders" \
     -H "Content-Type: application/json" \
     -d '{
       "customerId": "ae3a192b-4792-4b4a-a2b2-63b4ee3916ba",
@@ -599,7 +629,7 @@ Update an order's status. Returns the complete order detail matching `GET /order
   - `status` (`string`, required): One of `pending`, `paid`, `shipped`, `cancelled`.
 - **cURL:**
   ```bash
-  curl -i -X PATCH "https://LIVE_URL_PLACEHOLDER/api/v1/orders/d1006e2d-edd3-48cd-869f-7959092079b9" \
+  curl -i -X PATCH "https://ecommerce-api-production-3c59.up.railway.app/api/v1/orders/d1006e2d-edd3-48cd-869f-7959092079b9" \
     -H "Content-Type: application/json" \
     -d '{"status":"paid"}'
   ```
@@ -633,7 +663,7 @@ Permanently delete an order and cascade-delete its order items.
   - `id` (`UUID`, required): Order ID.
 - **cURL:**
   ```bash
-  curl -i -X DELETE "https://LIVE_URL_PLACEHOLDER/api/v1/orders/d1006e2d-edd3-48cd-869f-7959092079b9"
+  curl -i -X DELETE "https://ecommerce-api-production-3c59.up.railway.app/api/v1/orders/d1006e2d-edd3-48cd-869f-7959092079b9"
   ```
 - **Response (`204 No Content`):**
   - Empty body. A second `DELETE` to the same ID returns `404 NOT_FOUND`.
@@ -672,7 +702,7 @@ Cursor pagination provides stable, drift-free forward scrolling:
 
 **Step 1: Request Page 1**
 ```bash
-curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=2"
+curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=2"
 ```
 ```json
 {
@@ -700,7 +730,7 @@ curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=2"
 
 **Step 2: Request Page 2 with `cursor=NmE0NjA5YzYtNjEzMi00NzhmLTkxOTgtOGQzMGE1MDQ0OTI2`**
 ```bash
-curl -s "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=2&cursor=NmE0NjA5YzYtNjEzMi00NzhmLTkxOTgtOGQzMGE1MDQ0OTI2"
+curl -s "https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=2&cursor=NmE0NjA5YzYtNjEzMi00NzhmLTkxOTgtOGQzMGE1MDQ0OTI2"
 ```
 ```json
 {
@@ -893,7 +923,7 @@ Follow these exact steps to clone, configure, migrate, seed, and run the service
 
 ```bash
 # 1. Clone repository
-git clone https://github.com/example/ecommerce-api.git
+git clone https://github.com/believefrancis101-maker/ecommerce-api.git
 cd ecommerce-api
 
 # 2. Run local PostgreSQL 16 container
@@ -935,6 +965,8 @@ curl -s "http://localhost:3000/api/v1/health"
 
 It is deliberately minimal — no router, no state library, no UI framework, no login, no cart. Plain CSS.
 
+**The deployed app is live at `https://ecommerce-api-eight-gamma.vercel.app/`.** See [Deployment URLs](#deployment-urls) for how that was verified.
+
 ### Running it
 
 ```bash
@@ -942,8 +974,8 @@ cd consumer
 npm install
 
 # The real API URL lives in consumer/.env.local (gitignored).
-# consumer/.env.example holds the placeholder:
-#   VITE_API_URL=https://LIVE_URL_PLACEHOLDER
+# consumer/.env.example holds the same value for reference:
+#   VITE_API_URL=https://ecommerce-api-production-3c59.up.railway.app
 
 npm run dev        # dev server on http://localhost:5173
 npm run build      # type-check (tsc -b) + production build into dist/
@@ -983,7 +1015,7 @@ npm run preview    # serve the production build
 
 - The consumer has its own `package.json`, lockfile, `tsconfig` files and `node_modules`; it is never part of the API's dependency tree.
 - The root `tsconfig.json` and `tsconfig.typecheck.json` both `"exclude": ["node_modules", "dist", "consumer"]`, so `npm run typecheck` and `npm run build` never compile consumer sources.
-- The root Vitest config has no `include` override, and the consumer contains no test files, so `npm test` collects only the API's 9 test files.
+- The root Vitest config has no `include` override, and the consumer contains no test files, so `npm test` collects only the API's 11 test files.
 
 ---
 
@@ -1006,7 +1038,7 @@ npm test
 
 ## Deployment
 
-The application is deployed across two platforms: the backend API and PostgreSQL database are hosted on **Railway**, while the React + Vite consumer application is hosted on **Vercel**. For detailed step-by-step setup, smoke testing, and verification procedures, refer to the [Production Deployment Runbook](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/DEPLOY.md).
+The application is deployed across two platforms: the backend API and PostgreSQL database are hosted on **Railway**, while the React + Vite consumer application is hosted on **Vercel**. For detailed step-by-step setup, smoke testing, and verification procedures, refer to the [Production Deployment Runbook](DEPLOY.md).
 
 ### Environment Variables Matrix
 
@@ -1019,12 +1051,29 @@ The application is deployed across two platforms: the backend API and PostgreSQL
 | **Railway (API)** | `TRUST_PROXY_HOPS` | Configuration | `1` (optional) — number of reverse-proxy hops Express trusts when deriving `req.ip`. Used by the limiter as the fallback when `CLIENT_IP_HEADER` is unset or its value is rejected. See [Rate Limiting](#rate-limiting). |
 | **Railway (API)** | `CLIENT_IP_HEADER` | Configuration | `x-real-ip` (optional) — HTTP header whose value is the client's real IP, set by the platform edge proxy. Validated against an allowlist (currently `x-real-ip` only); empty by default. When set, the rate limiter reads this header directly instead of using `req.ip`. See [Rate Limiting](#rate-limiting). |
 | **Railway (API)** | `LOG_CLIENT_IP_HEADER` | Configuration | `false` (optional) — diagnostic that logs the raw `X-Real-IP` the process receives, so the edge's "replaces vs appends" behaviour can be verified. At most 10 distinct values per process, each truncated to 100 characters. Switch on for the Step 9 verification and off again afterwards. See [Rate Limiting](#rate-limiting). |
-| **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://LIVE_URL_PLACEHOLDER` (public API origin, no trailing slash; the consumer appends `/api/v1` itself). Baked in at consumer build time. |
+| **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://ecommerce-api-production-3c59.up.railway.app` (public API origin, no trailing slash; the consumer appends `/api/v1` itself). Baked in at consumer build time. |
 
 ### Deployment Overview
 1. **Database:** PostgreSQL 16 provisioned on Railway. Production migrations run forward-only via `npx prisma migrate deploy` in the pre-deploy phase.
 2. **API Service:** Express application built and started via Nixpacks (`npm run build` -> `npm start`). Verified by automated healthchecks on `/api/v1/health`.
-3. **Consumer App:** Built and deployed on Vercel from `/consumer`, pointing `VITE_API_URL` to `https://LIVE_URL_PLACEHOLDER`. See [Consumer Deployment (Vercel)](DEPLOY.md#consumer-deployment-vercel) for the full runbook.
+3. **Consumer App:** Built and deployed on Vercel from `/consumer`, pointing `VITE_API_URL` to `https://ecommerce-api-production-3c59.up.railway.app`. See [Consumer Deployment (Vercel)](DEPLOY.md#consumer-deployment-vercel) for the full runbook.
+
+### Deployed Instances
+
+| Component | Platform | URL | Verified |
+| :--- | :--- | :--- | :--- |
+| API | Railway | `https://ecommerce-api-production-3c59.up.railway.app` | `GET /api/v1/health` -> `200 {"data":{"status":"ok"}}`; `Server: railway-hikari` |
+| Consumer | Vercel | `https://ecommerce-api-eight-gamma.vercel.app/` | `200`, `Server: Vercel`, serves the app's `index.html` |
+
+The deployed consumer is the **same code** as this repository: its built assets are byte-identical to a local `npm run build` of `consumer/` at this commit.
+
+| Asset | SHA-256 (deployed = local build) |
+| :--- | :--- |
+| `assets/index-7igqbLHZ.js` | `2691707183C3EF22C703EEEEBB0FE84206B6582A3BEDF43261AAFF62FB764468` |
+| `assets/index-BFtSHkXy.css` | `62576107B5F3913A74AD8BE1A7BBDE82AF2D49640E38A7E86F00274AD299265C` |
+| `favicon.svg` | `6E667EAE8F523F6ABCA0498A95EB8DB0557CCAB4ECA98D4CE719CF3A6E20CDA2` |
+
+Because Vite inlines `VITE_API_URL` into the bundle, an identical content hash proves the deployment was built from this source **and** targets the live API origin. The deployed bundle contains exactly one API URL (`https://ecommerce-api-production-3c59.up.railway.app`) and **no** `localhost` / `127.0.0.1` reference.
 
 ### CORS Behaviour
 
@@ -1066,7 +1115,7 @@ Allowed responses carry `Vary: Origin, accept-encoding`; refused responses carry
 To check whether `NODE_ENV=production` is in effect, use a local origin, which is the only probe that distinguishes the two modes:
 
 ```bash
-curl -i -H "Origin: http://localhost:5173" "https://LIVE_URL_PLACEHOLDER/api/v1/products?limit=1"
+curl -i -H "Origin: http://localhost:5173" "https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=1"
 # NODE_ENV != 'production' (rule 4 active):  Access-Control-Allow-Origin: http://localhost:5173
 # NODE_ENV == 'production'  (rule 4 skipped): no Access-Control-Allow-Origin header
 ```
@@ -1096,13 +1145,14 @@ Each decision below lists the rationale alongside the alternative considered.
 
 Post-deployment evidence checklist for graded assessment submission:
 
-- [ ] **Live API URL:** `https://LIVE_URL_PLACEHOLDER`
-- [ ] **Paginated cURL Screenshot:** `docs/evidence/curl-pagination.png` (Terminal screenshot showing paginated JSON response)
-- [ ] **Rate Limiting 429 Screenshot:** `docs/evidence/rate-limit-429.png` (Terminal screenshot showing 429 response with `Retry-After`)
-- [ ] **Consumer Application Screenshot:** `docs/evidence/consumer-app.png` (Web app running in browser displaying data from the live API)
+- [x] **Live API URL:** `https://ecommerce-api-production-3c59.up.railway.app` — verified reachable, `GET /api/v1/health` returns `200 {"data":{"status":"ok"}}`
+- [x] **Deployed Consumer URL:** `https://ecommerce-api-eight-gamma.vercel.app/` — verified reachable, serves this repository's `consumer/` build
+- [ ] **Paginated cURL Screenshot:** `docs/evidence/curl-pagination.png` — **not yet captured.** Terminal screenshot of a paginated JSON response. Command: `curl.exe -s -i "https://ecommerce-api-production-3c59.up.railway.app/api/v1/products?limit=2&sort=name&order=asc"` (the `meta` block shows `total`, `limit`, `offset`, `hasMore`, `nextCursor`)
+- [ ] **Rate Limiting 429 Screenshot:** `docs/evidence/rate-limit-429.png` — **not yet captured.** Terminal screenshot of a `429` response with its `Retry-After` header. Capture it once the live limiter is confirmed to key on a single client-IP bucket (see [Rate Limiting](#rate-limiting)); before that the budget is split across Railway's internal hops, so a flood does not reliably produce a `429`
+- [ ] **Consumer Application Screenshot:** `docs/evidence/consumer-app.png` — the file exists, but it is a **local preview** capture and must be **replaced** by a capture taken from `https://ecommerce-api-eight-gamma.vercel.app/`
 
   > [!WARNING]
-  > The consumer screenshots below are **local preview captures** (the production build served from `localhost`), taken while verifying the app against the live API. They are **to be replaced by screenshots taken from the deployed Vercel URL** once the consumer is deployed.
+  > The consumer screenshots below are **local preview captures** (the production build served from `localhost`), taken while verifying the app against the live API. The consumer **is** now deployed at `https://ecommerce-api-eight-gamma.vercel.app/`, so these are **to be replaced by screenshots taken from that deployed URL**.
   >
   > That replacement stops being optional once `NODE_ENV=production` is in effect. Rule 4 is skipped, so the API stops sending `Access-Control-Allow-Origin` for `http://localhost:<port>`, and a consumer served from `localhost` can no longer read the live API from a browser — the request is blocked by CORS and the app surfaces it as "Cannot reach the API". In production mode the only browser origins that can call the API are `*.vercel.app` subdomains and the exact origins listed in `CORS_ORIGIN`.
 
@@ -1110,40 +1160,28 @@ Post-deployment evidence checklist for graded assessment submission:
 
   | Screenshot | State |
   | :--- | :--- |
-  | [`consumer-app.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-app.png) | Product list, first page (12 of 400) |
-  | [`consumer-loading-state.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-loading-state.png) | Loading (skeletons, all controls disabled) |
-  | [`consumer-empty-state.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-empty-state.png) | Empty state (max price 1 NGN) |
-  | [`consumer-network-error.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-network-error.png) | Network failure — "Cannot reach the API" |
-  | [`consumer-rate-limit-429.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-rate-limit-429.png) | HTTP 429 — "Too many requests, try again in a minute" |
-  | [`consumer-stale-cursor-400.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-stale-cursor-400.png) | HTTP 400 stale cursor — API message, reset to page 1 |
-  | [`consumer-api-error-400.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-api-error-400.png) | Other API error — `error.message` from the envelope |
-  | [`consumer-config-error.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-config-error.png) | Configuration error — `VITE_API_URL=http://example.com` (not `https:`), no requests made |
-- [ ] **Seed Script Link:** [`prisma/seed.ts`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/prisma/seed.ts)
-- [ ] **Ugly-Inputs / Edge-Case Evidence:** [`docs/evidence/ugly-inputs.md`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/ugly-inputs.md)
+  | [`consumer-app.png`](docs/evidence/consumer-app.png) | Product list, first page (12 of 400) |
+  | [`consumer-loading-state.png`](docs/evidence/consumer-loading-state.png) | Loading (skeletons, all controls disabled) |
+  | [`consumer-empty-state.png`](docs/evidence/consumer-empty-state.png) | Empty state (max price 1 NGN) |
+  | [`consumer-network-error.png`](docs/evidence/consumer-network-error.png) | Network failure — "Cannot reach the API" |
+  | [`consumer-rate-limit-429.png`](docs/evidence/consumer-rate-limit-429.png) | HTTP 429 — "Too many requests, try again in a minute" |
+  | [`consumer-stale-cursor-400.png`](docs/evidence/consumer-stale-cursor-400.png) | HTTP 400 stale cursor — API message, reset to page 1 |
+  | [`consumer-api-error-400.png`](docs/evidence/consumer-api-error-400.png) | Other API error — `error.message` from the envelope |
+  | [`consumer-config-error.png`](docs/evidence/consumer-config-error.png) | Configuration error — `VITE_API_URL=http://example.com` (not `https:`), no requests made |
+- [x] **Seed Script Link:** [`prisma/seed.ts`](prisma/seed.ts) — deterministic; see [Seed Data & Determinism](#seed-data--determinism) for the row counts and the product-id checksum
+- [x] **Ugly-Inputs / Edge-Case Evidence:** [`docs/evidence/ugly-inputs.md`](docs/evidence/ugly-inputs.md)
 
 ---
 
-## Live URL Placeholder Occurrences
+## Deployment URLs
 
-The placeholder `https://LIVE_URL_PLACEHOLDER` appears in the following locations within this document for easy replacement after deployment:
+The placeholders have been replaced with the real, verified deployment URLs. There are no placeholders left in this document.
 
-1. **Header / Overview section** (line 5)
-2. **Endpoint Reference intro** (line 165)
-3. **Endpoint 1 (`GET /api/v1/health`)** (line 177)
-4. **Endpoint 2 (`GET /api/v1/categories`)** (line 204)
-5. **Endpoint 3 (`GET /api/v1/categories/:id`)** (line 240)
-6. **Endpoint 4 (`GET /api/v1/categories/:id/products`)** (line 269)
-7. **Endpoint 5 (`GET /api/v1/products`)** (line 320)
-8. **Endpoint 6 (`GET /api/v1/products/:id`)** (line 373)
-9. **Endpoint 7 (`GET /api/v1/customers`)** (line 411)
-10. **Endpoint 8 (`GET /api/v1/customers/:id`)** (line 447)
-11. **Endpoint 9 (`GET /api/v1/orders`)** (line 477)
-12. **Endpoint 10 (`GET /api/v1/orders/:id`)** (line 519)
-13. **Endpoint 11 (`POST /api/v1/orders`)** (line 556)
-14. **Endpoint 12 (`PATCH /api/v1/orders/:id`)** (line 602)
-15. **Endpoint 13 (`DELETE /api/v1/orders/:id`)** (line 636)
-16. **Pagination worked example - Step 1** (line 675)
-17. **Pagination worked example - Step 2** (line 703)
-18. **Consumer App section - environment variable example** (line 867)
-19. **Deployment section** (lines 940 & 945)
-20. **Evidence section** (line 1004)
+| What | URL |
+| :--- | :--- |
+| Repository (GitHub) | `https://github.com/believefrancis101-maker/ecommerce-api` |
+| API (Railway) | `https://ecommerce-api-production-3c59.up.railway.app` |
+| API base path | `https://ecommerce-api-production-3c59.up.railway.app/api/v1` |
+| Consumer (Vercel) | `https://ecommerce-api-eight-gamma.vercel.app/` |
+
+The API's public hostname is also recorded in `consumer/README.md` and `consumer/.env.example`; the consumer's `VITE_API_URL` is baked into the deployed bundle at build time, so changing it requires a Vercel rebuild (see [Consumer Deployment (Vercel)](DEPLOY.md#consumer-deployment-vercel)).
