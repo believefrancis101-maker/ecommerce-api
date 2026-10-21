@@ -3,8 +3,8 @@
 E-commerce REST API built with Node.js, Express 4, TypeScript, PostgreSQL (via Docker), and Prisma 6.
 
 - **Live API URL:** `https://LIVE_URL_PLACEHOLDER`
-- **Consumer App:** `/consumer` (React + Vite)
-- **Status:** All stages (1 through 8) complete. 119 tests passing. Frozen deterministic seed.
+- **Consumer App:** `/consumer` (React + Vite + TypeScript)
+- **Status:** API stages 1-9 complete. 119 tests passing. Frozen deterministic seed. Stage 10 consumer app implemented in `/consumer` and verified against the live API (not yet deployed to Vercel).
 
 ---
 
@@ -17,11 +17,12 @@ E-commerce REST API built with Node.js, Express 4, TypeScript, PostgreSQL (via D
 5. [Error Handling](#error-handling)
 6. [Rate Limiting](#rate-limiting)
 7. [Running Locally from a Fresh Clone](#running-locally-from-a-fresh-clone)
-8. [Tests](#tests)
-9. [Deployment](#deployment)
-10. [Design Decisions](#design-decisions)
-11. [Evidence](#evidence)
-12. [Live URL Placeholder Occurrences](#live-url-placeholder-occurrences)
+8. [Consumer App](#consumer-app)
+9. [Tests](#tests)
+10. [Deployment](#deployment)
+11. [Design Decisions](#design-decisions)
+12. [Evidence](#evidence)
+13. [Live URL Placeholder Occurrences](#live-url-placeholder-occurrences)
 
 ---
 
@@ -849,6 +850,64 @@ curl -s "http://localhost:3000/api/v1/health"
 
 ---
 
+## Consumer App
+
+`consumer/` is a self-contained **React 19 + Vite + TypeScript** single-page app that acts as an *external* consumer of the deployed API. It exists to prove the API works from the outside: it talks to the live Railway deployment over the network, never to a local server.
+
+It is deliberately minimal — no router, no state library, no UI framework, no login, no cart. Plain CSS.
+
+### Running it
+
+```bash
+cd consumer
+npm install
+
+# The real API URL lives in consumer/.env.local (gitignored).
+# consumer/.env.example holds the placeholder:
+#   VITE_API_URL=https://LIVE_URL_PLACEHOLDER
+
+npm run dev        # dev server on http://localhost:5173
+npm run build      # type-check (tsc -b) + production build into dist/
+npm run preview    # serve the production build
+```
+
+`VITE_API_URL` is read **only** from `import.meta.env` — there is no default and no fallback baked into the bundle. It must be an **absolute URL with the `https:` scheme and a non-empty hostname**; if it is missing, empty, unparseable, plain `http:` or hostless, the page renders a visible configuration error and issues **no requests at all**. The value is the public API **origin** (no trailing slash); the app appends `/api/v1/...` itself. A value that already ends in `/api/v1` is accepted too — the suffix is stripped so the path never doubles up.
+
+### What it does
+
+| Area | Behaviour |
+| :--- | :--- |
+| Categories dropdown | `GET /api/v1/categories?limit=100&sort=name` |
+| Product list | `GET /api/v1/products` with **cursor** pagination, 12 per page |
+| Next | Sends `meta.nextCursor`; disabled when `!meta.hasMore` |
+| Previous | Walks a client-side stack of previously used cursors; disabled on page 1 |
+| Filters | Category (slug), sort field (`price` / `name`), sort direction (`asc` / `desc`), max price in NGN (converted to kobo, ×100) |
+| Empty parameters | Never sent — the API answers `400` for an empty query value, so unset controls are omitted from the URL entirely |
+| Reset | Changing any control returns to page 1 and clears the cursor stack |
+| Display | Product name, category name, price (`priceMinor` / 100 via `Intl.NumberFormat('en-NG', { currency: 'NGN' })`), stock, and `Showing X to Y of <meta.total>` |
+| Cancellation | Every request is made with an `AbortController`; a superseded request is aborted so a fast control change can never render a stale response |
+
+### States
+
+| State | What the user sees |
+| :--- | :--- |
+| Loading | Skeleton cards; every control (filters, Previous, Next) is disabled |
+| Empty | "No products match the filters" + a **Reset Filters** button |
+| Network failure | "Cannot reach the API" + **Retry** |
+| HTTP 429 | "Too many requests, try again in a minute" + **Retry** |
+| HTTP 400 (stale cursor) | The API's own message, and the app resets to page 1 |
+| Any other API error | `error.message` from the `{ error: { code, message } }` envelope + **Retry** |
+
+`Retry-After` is deliberately **not** read: browsers only expose cross-origin response headers listed in `Access-Control-Expose-Headers`, and the API does not expose `Retry-After`, so the value would always be `null`. See the comment in `consumer/src/api.ts`.
+
+### Isolation from the root project
+
+- The consumer has its own `package.json`, lockfile, `tsconfig` files and `node_modules`; it is never part of the API's dependency tree.
+- The root `tsconfig.json` and `tsconfig.typecheck.json` both `"exclude": ["node_modules", "dist", "consumer"]`, so `npm run typecheck` and `npm run build` never compile consumer sources.
+- The root Vitest config has no `include` override, and the consumer contains no test files, so `npm test` collects only the API's 9 test files.
+
+---
+
 ## Tests
 
 Run the Vitest test suite:
@@ -877,13 +936,47 @@ The application is deployed across two platforms: the backend API and PostgreSQL
 | **Railway (API)** | `DATABASE_URL` | Private Reference | `${{Postgres.DATABASE_URL}}` (connects over internal private mesh) |
 | **Railway (API)** | `NODE_ENV` | Configuration | `production` |
 | **Railway (API)** | `PORT` | Dynamic | Injected automatically by Railway runtime |
-| **Railway (API)** | `CORS_ORIGIN` | Configuration | Optional allowed origin; `*.vercel.app` domains are permitted automatically |
-| **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://LIVE_URL_PLACEHOLDER/api/v1` (baked in at consumer build time) |
+| **Railway (API)** | `CORS_ORIGIN` | Configuration | Optional comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically. See [CORS Behaviour](#cors-behaviour) for the full rule set. |
+| **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://LIVE_URL_PLACEHOLDER` (public API origin, no trailing slash; the consumer appends `/api/v1` itself). Baked in at consumer build time. |
 
 ### Deployment Overview
 1. **Database:** PostgreSQL 16 provisioned on Railway. Production migrations run forward-only via `npx prisma migrate deploy` in the pre-deploy phase.
 2. **API Service:** Express application built and started via Nixpacks (`npm run build` -> `npm start`). Verified by automated healthchecks on `/api/v1/health`.
-3. **Consumer App:** Built and deployed on Vercel from `/consumer`, pointing `VITE_API_URL` to `https://LIVE_URL_PLACEHOLDER/api/v1`.
+3. **Consumer App:** Built and deployed on Vercel from `/consumer`, pointing `VITE_API_URL` to `https://LIVE_URL_PLACEHOLDER`. See [Consumer Deployment (Vercel)](DEPLOY.md#consumer-deployment-vercel) for the full runbook.
+
+### CORS Behaviour
+
+The API mounts the `cors` package with a **function** for `origin` (`src/app.ts`), so every request is decided by that callback, in this order:
+
+1. **No `Origin` header** → allowed. This covers `curl`, server-to-server calls and native clients.
+2. **`CORS_ORIGIN` list** → allowed. The variable is split on commas, trimmed, and empty entries dropped; the match is **exact string equality** against the request's `Origin` header.
+3. **Vercel deployments** → allowed. `isAllowedVercelOrigin()` parses the origin and allows it when the **hostname ends with `.vercel.app`**. That matches any subdomain (`https://my-app.vercel.app`) over either scheme, but **not** the apex `vercel.app`, which has no leading dot.
+4. **Local development origins** → allowed **only when `NODE_ENV !== 'production'`**. The regex `^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$` matches any `http://localhost[:port]` or `http://127.0.0.1[:port]` on any port. The scheme must be `http`, so `https://localhost:5173` does **not** match and is refused.
+5. **Everything else** → refused (`callback(null, false)`). The `cors` package then omits `Access-Control-Allow-Origin`, so the browser blocks the response.
+
+Allowed methods are `GET, POST, PATCH, DELETE, OPTIONS`; allowed request headers are `Content-Type, Authorization`.
+
+**What changes when `NODE_ENV=production`:** rule 4 is skipped entirely, so local development origins are refused. The allowed set is then only: requests without an `Origin` header, the origins listed in `CORS_ORIGIN`, and `*.vercel.app` subdomains.
+
+> [!NOTE]
+> `NODE_ENV` defaults to `development` when the variable is unset (`src/config.ts`). A deployment that omits `NODE_ENV=production` therefore keeps allowing local origins.
+
+Live probe against the deployed API (`GET /api/v1/products?limit=1`, `Origin` header set by hand):
+
+| `Origin` | `Access-Control-Allow-Origin` | Verdict |
+| :--- | :--- | :--- |
+| `http://localhost:5173` | `http://localhost:5173` | allowed (rule 4) |
+| `http://localhost:9999` | `http://localhost:9999` | allowed (rule 4) |
+| `http://127.0.0.1:5173` | `http://127.0.0.1:5173` | allowed (rule 4) |
+| `https://localhost:5173` | *(none)* | refused — rule 4 is `http:` only |
+| `https://my-app.vercel.app` | `https://my-app.vercel.app` | allowed (rule 3) |
+| `https://consumer-ecommerce-api.vercel.app` | `https://consumer-ecommerce-api.vercel.app` | allowed (rule 3) |
+| `https://evil.vercel.app` | `https://evil.vercel.app` | allowed (rule 3) — any `*.vercel.app` subdomain |
+| `https://vercel.app` | *(none)* | refused — the apex has no leading dot |
+| `https://example.com` | *(none)* | refused (rule 5) |
+| `http://example.com` | *(none)* | refused (rule 5) |
+
+Allowed responses carry `Vary: Origin, accept-encoding`; refused responses carry no `Access-Control-Allow-Origin`.
 
 ---
 
@@ -912,6 +1005,22 @@ Post-deployment evidence checklist for graded assessment submission:
 - [ ] **Paginated cURL Screenshot:** `docs/evidence/curl-pagination.png` (Terminal screenshot showing paginated JSON response)
 - [ ] **Rate Limiting 429 Screenshot:** `docs/evidence/rate-limit-429.png` (Terminal screenshot showing 429 response with `Retry-After`)
 - [ ] **Consumer Application Screenshot:** `docs/evidence/consumer-app.png` (Web app running in browser displaying data from the live API)
+
+  > [!WARNING]
+  > The consumer screenshots below are **local preview captures** (the production build served from `localhost`), taken while verifying the app against the live API. They are **to be replaced by screenshots taken from the deployed Vercel URL** once the consumer is deployed.
+
+  Consumer states, each captured from the running app against the live API:
+
+  | Screenshot | State |
+  | :--- | :--- |
+  | [`consumer-app.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-app.png) | Product list, first page (12 of 400) |
+  | [`consumer-loading-state.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-loading-state.png) | Loading (skeletons, all controls disabled) |
+  | [`consumer-empty-state.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-empty-state.png) | Empty state (max price 1 NGN) |
+  | [`consumer-network-error.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-network-error.png) | Network failure — "Cannot reach the API" |
+  | [`consumer-rate-limit-429.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-rate-limit-429.png) | HTTP 429 — "Too many requests, try again in a minute" |
+  | [`consumer-stale-cursor-400.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-stale-cursor-400.png) | HTTP 400 stale cursor — API message, reset to page 1 |
+  | [`consumer-api-error-400.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-api-error-400.png) | Other API error — `error.message` from the envelope |
+  | [`consumer-config-error.png`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/consumer-config-error.png) | Configuration error — `VITE_API_URL=http://example.com` (not `https:`), no requests made |
 - [ ] **Seed Script Link:** [`prisma/seed.ts`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/prisma/seed.ts)
 - [ ] **Ugly-Inputs / Edge-Case Evidence:** [`docs/evidence/ugly-inputs.md`](file:///c:/Users/USER/Desktop/ShopSphere%20API/ecommerce-api/docs/evidence/ugly-inputs.md)
 
@@ -922,21 +1031,22 @@ Post-deployment evidence checklist for graded assessment submission:
 The placeholder `https://LIVE_URL_PLACEHOLDER` appears in the following locations within this document for easy replacement after deployment:
 
 1. **Header / Overview section** (line 5)
-2. **Endpoint Reference intro** (line 164)
-3. **Endpoint 1 (`GET /api/v1/health`)** (line 176)
-4. **Endpoint 2 (`GET /api/v1/categories`)** (line 203)
-5. **Endpoint 3 (`GET /api/v1/categories/:id`)** (line 239)
-6. **Endpoint 4 (`GET /api/v1/categories/:id/products`)** (line 268)
-7. **Endpoint 5 (`GET /api/v1/products`)** (line 319)
-8. **Endpoint 6 (`GET /api/v1/products/:id`)** (line 372)
-9. **Endpoint 7 (`GET /api/v1/customers`)** (line 410)
-10. **Endpoint 8 (`GET /api/v1/customers/:id`)** (line 446)
-11. **Endpoint 9 (`GET /api/v1/orders`)** (line 476)
-12. **Endpoint 10 (`GET /api/v1/orders/:id`)** (line 518)
-13. **Endpoint 11 (`POST /api/v1/orders`)** (line 555)
-14. **Endpoint 12 (`PATCH /api/v1/orders/:id`)** (line 601)
-15. **Endpoint 13 (`DELETE /api/v1/orders/:id`)** (line 635)
-16. **Pagination worked example - Step 1** (line 674)
-17. **Pagination worked example - Step 2** (line 702)
-18. **Deployment section** (lines 881 & 886)
-19. **Evidence section** (line 911)
+2. **Endpoint Reference intro** (line 165)
+3. **Endpoint 1 (`GET /api/v1/health`)** (line 177)
+4. **Endpoint 2 (`GET /api/v1/categories`)** (line 204)
+5. **Endpoint 3 (`GET /api/v1/categories/:id`)** (line 240)
+6. **Endpoint 4 (`GET /api/v1/categories/:id/products`)** (line 269)
+7. **Endpoint 5 (`GET /api/v1/products`)** (line 320)
+8. **Endpoint 6 (`GET /api/v1/products/:id`)** (line 373)
+9. **Endpoint 7 (`GET /api/v1/customers`)** (line 411)
+10. **Endpoint 8 (`GET /api/v1/customers/:id`)** (line 447)
+11. **Endpoint 9 (`GET /api/v1/orders`)** (line 477)
+12. **Endpoint 10 (`GET /api/v1/orders/:id`)** (line 519)
+13. **Endpoint 11 (`POST /api/v1/orders`)** (line 556)
+14. **Endpoint 12 (`PATCH /api/v1/orders/:id`)** (line 602)
+15. **Endpoint 13 (`DELETE /api/v1/orders/:id`)** (line 636)
+16. **Pagination worked example - Step 1** (line 675)
+17. **Pagination worked example - Step 2** (line 703)
+18. **Consumer App section - environment variable example** (line 867)
+19. **Deployment section** (lines 940 & 945)
+20. **Evidence section** (line 1004)
