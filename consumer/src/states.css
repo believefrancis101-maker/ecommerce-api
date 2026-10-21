@@ -1,0 +1,82 @@
+/* Empty state, error state, configuration error and loading skeletons. */
+
+/* States */
+.state-box {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  padding: 3rem 1.5rem;
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.state-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.state-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.state-description {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  max-width: 450px;
+  margin: 0 auto 1.5rem;
+}
+
+/* Error banner */
+.error-box {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.error-title {
+  color: #f87171;
+}
+
+/* Config error */
+.config-error-container {
+  max-width: 650px;
+  margin: 4rem auto;
+  padding: 2.5rem;
+  background: var(--card-bg);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+
+.config-code {
+  display: block;
+  background: #0f172a;
+  padding: 1rem;
+  border-radius: var(--radius-sm);
+  margin: 1rem 0;
+  color: #f87171;
+  font-family: monospace;
+  font-size: 0.9rem;
+  text-align: left;
+}
+
+/* Skeleton Loading */
+.skeleton-card {
+  height: 220px;
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--card-border);
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

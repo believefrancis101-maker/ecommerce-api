@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import './App.css';
+import './states.css';
 import {
   API_BASE_URL,
   CONFIG_PROBLEM,
@@ -19,6 +20,8 @@ import type {
 import FilterBar from './components/FilterBar';
 import ProductGrid from './components/ProductGrid';
 import ResultsBar from './components/ResultsBar';
+import SkeletonGrid from './components/SkeletonGrid';
+import StatusPanel from './components/StatusPanel';
 
 export default function App() {
   // Data
@@ -41,6 +44,9 @@ export default function App() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [cursorStack, setCursorStack] = useState<string[]>([]);
 
+  // The recovery request that follows a stale cursor must not wipe the message
+  // it was caused by, so that request keeps the failure on screen.
+  const keepFailureOnNextRequest = useRef<boolean>(false);
   // Last price actually sent to the API, so the debounced input below only
   // triggers a request once per distinct value.
   const appliedMaxPrice = useRef<number | null>(null);
@@ -78,7 +84,11 @@ export default function App() {
 
     void (async () => {
       setLoading(true);
-      setFailure(null);
+
+      if (!keepFailureOnNextRequest.current) {
+        setFailure(null);
+      }
+      keepFailureOnNextRequest.current = false;
 
       try {
         const outcome = await fetchProducts(
@@ -92,6 +102,14 @@ export default function App() {
         }
 
         if (outcome.status === 'failure') {
+          if (outcome.failure.kind === 'stale-cursor') {
+            // The cursor no longer points at a row of the current result set:
+            // drop the cursor stack, go back to page 1 and keep the message.
+            keepFailureOnNextRequest.current = true;
+            setCursorStack([]);
+            setCursor(null);
+          }
+
           setFailure(outcome.failure);
           return;
         }
@@ -174,21 +192,41 @@ export default function App() {
   };
 
   const handleRetry = () => {
+    keepFailureOnNextRequest.current = false;
     setRetryToken((token) => token + 1);
+  };
+
+  const handleResetFilters = () => {
+    keepFailureOnNextRequest.current = false;
+    setCategory('');
+    setSort('name');
+    setOrder('asc');
+    setMaxPriceInput('');
+    setMaxPriceMinor(null);
+    appliedMaxPrice.current = null;
+    setCursorStack((stack) => (stack.length === 0 ? stack : []));
+    setCursor(null);
+    setFailure(null);
   };
 
   // The configuration error is rendered instead of the page, and no request is
   // ever made while it is in effect.
   if (CONFIG_PROBLEM !== null) {
     return (
-      <main>
-        <h1>Configuration Error</h1>
-        <p>{CONFIG_PROBLEM}</p>
-        <p>
-          Set <code>VITE_API_URL</code> in <code>consumer/.env.local</code> to the live API URL,
-          then restart the dev server.
+      <div className="config-error-container">
+        <div className="state-icon" aria-hidden="true">
+          ⚠️
+        </div>
+        <h2 className="error-title">Configuration Error</h2>
+        <p className="state-description">{CONFIG_PROBLEM}</p>
+        <code className="config-code">
+          VITE_API_URL={import.meta.env.VITE_API_URL || '(empty)'}
+        </code>
+        <p className="brand-subtitle">
+          Set it in <code>consumer/.env.local</code> to the live API URL, then restart the dev
+          server.
         </p>
-      </main>
+      </div>
     );
   }
 
@@ -202,9 +240,9 @@ export default function App() {
       <header className="app-header">
         <div className="brand-section">
           <div>
-            <h1 className="brand-title">ShopSphere Catalog</h1>
+            <h1 className="brand-title">ecommerce-api</h1>
             <p className="brand-subtitle">
-              Live external consumer reading directly from the Railway production API
+              Live product catalog read directly from the Railway production API
             </p>
           </div>
           <div className="api-badge">
@@ -238,19 +276,26 @@ export default function App() {
         onNext={handleNextPage}
       />
 
-      {loading && <p>Loading products…</p>}
-
-      {!loading && failure !== null && (
-        <div role="alert">
-          <p>{failure.message}</p>
-          <button type="button" className="btn btn-primary" onClick={handleRetry}>
-            Retry
-          </button>
-        </div>
+      {failure !== null && (
+        <StatusPanel
+          variant="error"
+          title="Request Failed"
+          message={failure.message}
+          actionLabel="Retry"
+          onAction={handleRetry}
+        />
       )}
 
+      {loading && <SkeletonGrid />}
+
       {!loading && failure === null && products.length === 0 && (
-        <p>No products match the filters.</p>
+        <StatusPanel
+          variant="empty"
+          title="No products match the filters"
+          message="Try another category, a different sort order, or raise the maximum price."
+          actionLabel="Reset Filters"
+          onAction={handleResetFilters}
+        />
       )}
 
       {!loading && products.length > 0 && <ProductGrid products={products} />}
