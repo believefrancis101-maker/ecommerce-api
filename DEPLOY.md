@@ -41,6 +41,7 @@ Select the **ecommerce-api** service, navigate to the **Variables** tab, and con
 | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` | Cross-service reference resolving to the private internal database network. |
 | `NODE_ENV` | `production` | Enables production runtime mode. **Must be set**, otherwise it defaults to `development` and local development origins stay CORS-allowed. See [CORS Behaviour](#cors-behaviour). |
 | `CORS_ORIGIN` | `https://your-consumer.vercel.app` | *(Optional / set after consumer deployment)* Comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically, so this is only needed for a custom domain. |
+| `TRUST_PROXY_HOPS` | `1` | *(Optional, default `1`)* Number of reverse-proxy hops Express trusts when deriving `req.ip`, which is the rate limiter key. Set to `2` if the live deployment's `X-Forwarded-For` carries two entries. See [Step 9: Rate Limit & Security Verification](#step-9-rate-limit--security-verification). |
 
 > [!NOTE]
 > `PORT` is dynamically injected by Railway at runtime; do not define it manually.
@@ -192,22 +193,67 @@ curl.exe -i -X POST "$LIVE_URL/api/v1/orders" `
 
 ## Step 9: Rate Limit & Security Verification
 
-### A. Per-Client Rate Limit Independence
-1. From your laptop, run the 105-request flood loop above until `curl.exe` receives `429 Too Many Requests`.
-2. Immediately open a browser or terminal on your **smartphone (connected to mobile data, not Wi-Fi)** and visit:
-   `https://LIVE_URL_PLACEHOLDER/api/v1/health`
-3. **Verify:** The phone receives `200 OK` (`{"data":{"status":"ok"}}`), proving the rate limit is strictly partitioned per client IP and does not block other users.
+The limiter keys on `req.ip`. Express derives `req.ip` from the socket peer plus the `X-Forwarded-For` header by walking **`TRUST_PROXY_HOPS`** hops back from the app (`app.set('trust proxy', n)` in `src/app.ts`; see [Rate Limiting → Client IP and `TRUST_PROXY_HOPS`](README.md#rate-limiting)).
 
-### B. Spoofed Header Protection (`trust proxy = 1`)
-1. From your laptop, attempt to bypass the rate limit by forging an IP in the `X-Forwarded-For` header:
-   ```powershell
-   1..105 | ForEach-Object {
-     curl.exe -s -o /dev/null -w "%{http_code}`n" `
-       -H "X-Forwarded-For: 1.2.3.4" `
-       "$LIVE_URL/api/v1/health"
-   }
+Railway's edge forwards each request through an internal hop whose address is **not stable between requests**, so the hop count has to match the deployment. If it does not, the budget is charged to a Railway proxy node instead of to the visitor: the flood gets split across several buckets and never trips the limit.
+
+Run all three checks in order.
+
+### Check 1 — Parallel flood
+
+The flood must be **parallel**. A single sequential loop is not a valid test: it can be spread over several proxy hops and hide a mis-set hop count.
+
+```powershell
+# Run this in three terminals at the same time (or use one script with parallel requests).
+# -D - dumps the response headers so you can watch RateLimit-Remaining; -o NUL discards the body.
+1..60 | ForEach-Object {
+  curl.exe -s -o NUL -D - -w "`n%{http_code}`n" "https://LIVE_URL_PLACEHOLDER/api/v1/health"
+}
+```
+
+**Expected:** the first **100** requests return `200`, everything after that returns **`429 Too Many Requests`** with a `Retry-After: 60` header, and the `RateLimit-Remaining` header counts down in a **single** sequence (`99` → `0`) and then stays at `0`.
+
+**Failure signature:** *no `429`s at all*, or a `RateLimit-Remaining` header that shows **two interleaved counters** (for example `99, 98, 97 … 50, 51, 50 … 49, 48 …`). Two counters means the requests are landing in more than one bucket — the limiter is keying on a Railway proxy hop, not on the client. Cross-check by looking for more than one value in the `x-hikari-trace` response header: one value per counter confirms it.
+
+### Check 2 — Forged `X-Forwarded-For` after the flood
+
+Run this **while the budget from Check 1 is still exhausted** (within the same 60-second window):
+
+```powershell
+1..10 | ForEach-Object {
+  curl.exe -s -o NUL -w "%{http_code}`n" `
+    -H "X-Forwarded-For: 1.2.3.4" `
+    "https://LIVE_URL_PLACEHOLDER/api/v1/health"
+}
+```
+
+**Expected:** every request returns **`429 Too Many Requests`**. Rotating the forged value must not buy a fresh budget — the limiter must still be charging the same client.
+
+**Failure signature:** a `200` means the leftmost, caller-supplied entry is being used as the key, so the caller can rotate it to reset the budget.
+
+### Check 3 — Phone on mobile data
+
+1. With the budget still exhausted from Check 1, open a browser or terminal on your **smartphone, connected to mobile data (not Wi-Fi)** and visit:
+   `https://LIVE_URL_PLACEHOLDER/api/v1/health`
+2. **Expected:** the phone receives **`200 OK`** (`{"data":{"status":"ok"}}`), proving the rate limit is strictly partitioned per client IP and does not block other users.
+
+**Failure signature:** a `429` on the phone means your own client's budget is being shared with unrelated traffic — the limiter is keying on a proxy node, so every client behind that node is charged to the same budget.
+
+### If Check 2 or Check 3 fails: set `TRUST_PROXY_HOPS=2`
+
+A failure in either check points at the hop count being one too low — the limiter is stopping one hop short of the client and charging a Railway proxy node instead.
+
+1. On the **ecommerce-api** service in Railway, open **Variables** and set:
    ```
-2. **Verify:** The requests still hit `429 Too Many Requests`. Because `app.set('trust proxy', 1)` is enabled, Express trusts only the immediate Railway reverse proxy hop and correctly evaluates the real client IP rather than arbitrary spoofed header values.
+   TRUST_PROXY_HOPS=2
+   ```
+2. Redeploy the service (Railway injects variables into the container at start, so a redeploy — not just a restart — is required).
+3. Re-run **Check 1**, **Check 2** and **Check 3** from the top.
+
+`TRUST_PROXY_HOPS=2` makes Express take the **leftmost** `X-Forwarded-For` entry — the address Railway's edge saw — instead of the rightmost, proxy-controlled one. That is the correct value when the deployment's `X-Forwarded-For` carries two entries, and it is the setting the live deployment's two `x-hikari-trace` hop values point to.
+
+> [!IMPORTANT]
+> Do **not** raise the hop count above the number of entries the deployment actually produces. Trusting one hop too many hands the key to the leftmost, caller-supplied entry, which a caller can rotate to reset the budget — that is the exact failure Check 2 is designed to catch.
 
 ---
 

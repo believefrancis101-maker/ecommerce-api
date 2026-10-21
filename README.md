@@ -806,6 +806,21 @@ Rate limiting is enforced by `express-rate-limit` in `src/app.ts`:
     ```
 - **Architectural Placement:** The limiter is mounted **above** `express.json()`. Oversized payloads (`413`) and malformed JSON floods (`400`) are counted against the caller's budget before payload parsing occurs.
 
+### Client IP and `TRUST_PROXY_HOPS`
+
+The limiter keys on `req.ip`. Express derives `req.ip` from the socket peer plus the `X-Forwarded-For` header by walking **one hop per trusted proxy** back from the app (`app.set('trust proxy', n)` in `src/app.ts`), and `n` is read from the environment as **`TRUST_PROXY_HOPS`** (integer `0`–`5`, default `1`) and applied at boot.
+
+| `TRUST_PROXY_HOPS` | `X-Forwarded-For: a, b` | `req.ip` / limiter key | Meaning |
+| :--- | :--- | :--- | :--- |
+| `1` | `a, b` | `b` — the **rightmost** entry | one proxy in front of the app |
+| `2` | `a, b` | `a` — the **leftmost** entry | two proxies in front of the app |
+
+Trusting **too few** hops keys the limiter on a proxy node rather than the visitor, so every client behind that node shares one budget. Trusting **too many** hops lets the caller choose the leftmost, caller-supplied entry and rotate it to reset the budget.
+
+Railway's edge terminates TLS and forwards the request to the deployment, and Railway does not publish a stable proxy CIDR range, so the hop count is deployment-specific. Verify it with the live checks in [DEPLOY.md → Step 9: Rate Limit & Security Verification](DEPLOY.md#step-9-rate-limit--security-verification) and set the variable to `2` if the live deployment's `X-Forwarded-For` carries two entries.
+
+Both hop counts are covered by `src/trust-proxy.test.ts`.
+
 ---
 
 ## Running Locally from a Fresh Clone
@@ -937,6 +952,7 @@ The application is deployed across two platforms: the backend API and PostgreSQL
 | **Railway (API)** | `NODE_ENV` | Configuration | `production` (**required** — see [CORS Behaviour](#cors-behaviour)) |
 | **Railway (API)** | `PORT` | Dynamic | Injected automatically by Railway runtime |
 | **Railway (API)** | `CORS_ORIGIN` | Configuration | Optional comma-separated list of **exact** allowed origins. `*.vercel.app` subdomains are permitted automatically. See [CORS Behaviour](#cors-behaviour) for the full rule set. |
+| **Railway (API)** | `TRUST_PROXY_HOPS` | Configuration | `1` (optional) — number of reverse-proxy hops Express trusts when deriving `req.ip`, which is the rate limiter key. See [Rate Limiting](#rate-limiting). |
 | **Vercel (Consumer)** | `VITE_API_URL` | Build-time | `https://LIVE_URL_PLACEHOLDER` (public API origin, no trailing slash; the consumer appends `/api/v1` itself). Baked in at consumer build time. |
 
 ### Deployment Overview

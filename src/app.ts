@@ -8,7 +8,18 @@ import { ApiError, ok, SuccessEnvelope } from './utils/response';
 
 const app = express();
 
-app.set('trust proxy', 1);
+// Number of reverse-proxy hops between the public internet and this process.
+// Express builds req.ip from the socket peer and the X-Forwarded-For header by
+// walking that many hops back from the app, and the rate limiter keys on
+// req.ip - so this value decides whose IP the budget is charged to.
+//
+// Railway's edge terminates TLS and forwards to the deployment, and it does
+// not publish a stable proxy CIDR range, so the hop count is an environment
+// setting (TRUST_PROXY_HOPS) rather than a constant baked into the code.
+// Trusting too few hops keys the limiter on a Railway proxy node instead of
+// the visitor; trusting too many lets a caller pick the leftmost, caller
+// supplied X-Forwarded-For value and rotate it to reset the budget.
+app.set('trust proxy', config.trustProxyHops);
 
 app.use(helmet());
 const defaultLocalOrigins = [
