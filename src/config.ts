@@ -28,6 +28,46 @@ const envSchema = z.object({
       }
       return parsed;
     }),
+  // Optional header name that carries the client's real IP address, set by the
+  // hosting platform's edge proxy.  When set, the rate limiter reads this header
+  // directly instead of relying on Express's req.ip hop-counting.
+  // Empty / unset → the limiter keys on req.ip as before.
+  //
+  // Validated against an explicit allowlist so that an operator cannot
+  // accidentally trust an arbitrary caller-supplied header.  Add entries only
+  // after verifying that the target platform's edge replaces the header.
+  CLIENT_IP_HEADER: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (val === undefined || val.trim() === '') return undefined;
+      const trimmed = val.trim().toLowerCase();
+      // Allowlist: only header names known to be set by a trusted edge proxy.
+      // "x-real-ip" is documented by Railway.
+      const ALLOWED_HEADERS = ['x-real-ip'] as const;
+      if (!(ALLOWED_HEADERS as readonly string[]).includes(trimmed)) {
+        throw new Error(
+          `CLIENT_IP_HEADER must be one of: ${ALLOWED_HEADERS.join(', ')} (got "${trimmed}")`,
+        );
+      }
+      return trimmed;
+    }),
+  // Diagnostic switch for the client-IP header. When true, the app logs the
+  // raw client-IP header it actually receives, so an operator can confirm that
+  // the platform's edge REPLACES the header (safe to key the limiter on)
+  // instead of APPENDING to it (not safe). Off by default.
+  LOG_CLIENT_IP_HEADER: z
+    .string()
+    .optional()
+    .transform((val) => {
+      if (val === undefined || val.trim() === '') return false;
+      const normalized = val.trim().toLowerCase();
+      if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+      if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+      throw new Error(
+        `LOG_CLIENT_IP_HEADER must be a boolean (true/false), got "${val.trim()}"`,
+      );
+    }),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);
@@ -46,8 +86,17 @@ export interface Config {
   corsOrigin?: string;
   // How many reverse-proxy hops sit between the public internet and this app.
   // Express derives req.ip from the socket peer plus X-Forwarded-For by walking
-  // this many hops back from the app; the rate limiter keys on req.ip.
+  // this many hops back from the app.  The rate limiter keys on req.ip unless
+  // CLIENT_IP_HEADER is set, in which case this is the fallback key.
   trustProxyHops: number;
+  // Optional HTTP header name whose value is the client's real IP, set by the
+  // hosting platform's edge proxy (e.g. "x-real-ip" on Railway).  When set, the
+  // rate limiter reads this header instead of Express's req.ip.
+  clientIpHeader?: string;
+  // When true, the app logs the raw client-IP header it receives (see
+  // src/app.ts).  Used to verify that the platform's edge replaces the header
+  // before the limiter is allowed to key on it.  Off by default.
+  logClientIpHeader: boolean;
   pagination: {
     defaultLimit: number;
     maxLimit: number;
@@ -73,6 +122,8 @@ export const config: Config = {
   nodeEnv: parsedEnv.data.NODE_ENV,
   corsOrigin: parsedEnv.data.CORS_ORIGIN,
   trustProxyHops: parsedEnv.data.TRUST_PROXY_HOPS,
+  clientIpHeader: parsedEnv.data.CLIENT_IP_HEADER,
+  logClientIpHeader: parsedEnv.data.LOG_CLIENT_IP_HEADER,
   pagination: {
     defaultLimit: 20,
     maxLimit: 100,
